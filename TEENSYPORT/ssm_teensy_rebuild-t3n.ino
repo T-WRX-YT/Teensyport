@@ -5,8 +5,8 @@
 /* CAN BUS SETUP */
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> Can0;
 
-bool set1 = 0;
-bool set2 = 0;
+bool set1 = 0; // only used for the old cansniff function, not the isotp style
+bool set2 = 0; // only used for the old cansniff function, not the isotp style
 
 unsigned char responseData[61]; // holds the entire response
 uint8_t packetCount = 0;  // how many packets parsed in this block
@@ -110,9 +110,9 @@ bool verbose = 0; // prints the raw packet data for each canbus received message
 bool printStats = 0;  // prints the current gauge data values after each 0x30 packet
 bool printLoopStats = 1;  // prints the current gauge data values when pushing to the display
 bool testData = 0;  // generate fake data and loop it to the display
-bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening
-int updateInt = 50; // how fast to do an update in the loop
-int displayMode = 0; // 0 - unknown, 1 - normal, 2 - data logging
+bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening.  will always turn off passive if it sees other traffic
+int updateInt = 50; // how fast to do an update in the loop, 50 should be 20 times a second
+int displayMode = 0; // 0 - unknown, 1 - normal, 2 - data logging.  it will auto detect from boot
 
 void setup(void) {
   Serial.begin(115200); delay(400);
@@ -178,7 +178,7 @@ void setup(void) {
 
 
 
-
+// old and busted.  it worked but its ugly
 void canSniff(const CAN_message_t &msg) {
     
   if (verbose) {
@@ -262,7 +262,7 @@ void canSniff(const CAN_message_t &msg) {
   }
 }
 
-
+// new hotness, closs enough to isotp to count
 void canSniffIso(const CAN_message_t &msg) {
     
     if (verbose) {
@@ -279,6 +279,7 @@ void canSniffIso(const CAN_message_t &msg) {
     } Serial.println();
   }
 
+  // detection for something else requesting data, this will turn off sending to prevent collisions with the ecu
   if ((msg.id == 0x7E0) && (ssmActive == 1)) {
     ssmActive = 0;
     Serial.println("Switching ssm active to 0");
@@ -312,7 +313,7 @@ void canSniffIso(const CAN_message_t &msg) {
         packetCount++;
     } // finished with 0x10
 
-    // 0x30 received a continue from the first request byte, that means the last message received was the last
+    // 0x30 received a continue from the first request byte, that means the last message received was the end of the data 
     else if (msg.buf[0] == 0x30) {
         
         if (printStats) {
