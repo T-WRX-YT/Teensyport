@@ -74,6 +74,7 @@ bool flowCont = 1;
 #define HWSERIAL Serial1
 char buf[10];
 int oilTemperature, oilPressure;
+int prevOilTemperature = 0;
 /* SERIAL CONNECTION TO ARDUINO */
 
 
@@ -106,13 +107,13 @@ union floatUnion {
 
 
 
-bool verbose = 0; // prints the raw packet data for each canbus received message
+bool verbose = 1; // prints the raw packet data for each canbus received message
 bool printStats = 0;  // prints the current gauge data values after each 0x30 packet
 bool printLoopStats = 1;  // prints the current gauge data values when pushing to the display
-bool testData = 0;  // generate fake data and loop it to the display
+bool testData = 1;  // generate fake data and loop it to the display
 bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening.  will always turn off passive if it sees other traffic
-int updateInt = 1000; // how fast to do an update in the loop, 50 should be 20 times a second
-int displayMode = 0; // 0 - unknown, 1 - normal, 2 - data logging.  it will auto detect from boot set to 0, if using test data set it manually
+int updateInt = 500; // how fast to do an update in the loop, 50 should be 20 times a second
+int displayMode = 2; // 0 - unknown, 1 - normal, 2 - data logging.  it will auto detect from boot set to 0, if using test data set it manually
 
 void setup(void) {
   Serial.begin(115200); delay(400);
@@ -563,6 +564,19 @@ void processOil (char *t) {
         Serial.println (val);
       }
       oilTemperature = (val);
+      if (verbose) {
+        Serial.print("Previous Oil: ");
+        Serial.print(prevOilTemperature);
+        Serial.print(" Current Oil: ");
+        Serial.print(val);
+      }
+      oilTemperature = (oilTemperature + prevOilTemperature) / 2;
+      if (verbose) {
+        Serial.print(" Average Oil: ");
+        Serial.println(oilTemperature);
+      }
+      prevOilTemperature = oilTemperature;
+
       break;
 
   case 'b':
