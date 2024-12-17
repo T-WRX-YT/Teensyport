@@ -111,8 +111,8 @@ bool printStats = 0;  // prints the current gauge data values after each 0x30 pa
 bool printLoopStats = 1;  // prints the current gauge data values when pushing to the display
 bool testData = 0;  // generate fake data and loop it to the display
 bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening.  will always turn off passive if it sees other traffic
-int updateInt = 50; // how fast to do an update in the loop, 50 should be 20 times a second
-int displayMode = 0; // 0 - unknown, 1 - normal, 2 - data logging.  it will auto detect from boot
+int updateInt = 1000; // how fast to do an update in the loop, 50 should be 20 times a second
+int displayMode = 0; // 0 - unknown, 1 - normal, 2 - data logging.  it will auto detect from boot set to 0, if using test data set it manually
 
 void setup(void) {
   Serial.begin(115200); delay(400);
@@ -444,7 +444,7 @@ void loop() {
       oilTemperature = i;
       intakeTempFinal = i;
       feedbackKnockFinal = (random(0,5) * 1.4) * -1;
-      fineKnockFinal = (random(0,5) * 1.4) * -1;
+      fineKnockFinal = (random(0,2) * 1.4) * -1;
       damFinal = 1;
       boostFinal = (random(-20,20) / 1.1 );
       oilPressure = (random(0,99));
@@ -783,7 +783,7 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
       tft.setTextColor(ILI9341_WHITE, ILI9341_BLUE);
     }
     // 130-159 and 225-240: yellow
-    else if (((v8 >= 130) && (v8 < 160)) || ((v8 >= 225) && (v8 < 240))) {
+    else if (((v8 >= 130) && (v8 < 160)) || ((v8 >= 225) && (v8 < 241))) {
       tft.setTextColor(ILI9341_BLACK, ILI9341_YELLOW);
     }
     // 210+ or below 40: red
@@ -930,7 +930,8 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
 
     tft.setTextSize(2);
     tft.setCursor(130, 225);
-    tft.print(v12);
+    if (v12 == 9999) { tft.print(0); }
+    else { tft.print(v12); }
     tft.setCursor(190, 225);
     tft.print(v13);
   }
@@ -953,7 +954,7 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
       tft.setTextColor(ILI9341_WHITE, ILI9341_BLUE);
     }
     // 130-159 and 225-240: yellow
-    else if (((v8 >= 130) && (v8 < 160)) || ((v8 >= 225) && (v8 < 240))) {
+    else if (((v8 >= 130) && (v8 < 160)) || ((v8 >= 225) && (v8 < 241))) {
       tft.setTextColor(ILI9341_BLACK, ILI9341_YELLOW);
     }
     // 210+ or below 40: red
@@ -999,38 +1000,38 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
 
 
     // row 2 left
-    tft.setCursor(10, row2 + 60);
+    tft.setCursor(10, row2 + 30);
     tft.setTextColor(ILI9341_WHITE);
     tft.setTextSize(1);
     tft.println("OIL PRESS");
 
     //oil pressure
-    tft.setCursor(10, row2 + 70);
-    tft.setTextSize(3);
+    tft.setCursor(10, row2 + 40);
+    tft.setTextSize(4);
     tft.print(v9);
 
 
     // row 2 right
-    tft.setCursor(150, row2 + 60);
+    tft.setCursor(150, row2 + 30);
     tft.setTextColor(ILI9341_WHITE);
     tft.setTextSize(1);
     tft.println("INTAKE");
 
     // intake temp
-    tft.setCursor(130, row2 + 70);
-    tft.setTextSize(3);
+    tft.setCursor(130, row2 + 40);
+    tft.setTextSize(4);
     tft.setTextColor(ILI9341_WHITE);
     tft.print(v4);
 
 
     // row 3 left
-    tft.setCursor(10, row3 + 60);
+    tft.setCursor(10, row3 + 40);
     tft.setTextColor(ILI9341_WHITE);
     tft.setTextSize(1);
     tft.println("DAM");
 
     //dam
-    tft.setCursor(10, row3 + 70);
+    tft.setCursor(10, row3 + 50);
     tft.setTextSize(3);
     if (v5 != 1.00) {
       tft.setTextColor(ILI9341_WHITE, ILI9341_RED);
@@ -1042,25 +1043,25 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
 
 
     // row 3 right
-    tft.setCursor(150, row3 + 60);
+    tft.setCursor(150, row3 + 40);
     tft.setTextColor(ILI9341_WHITE);
     tft.setTextSize(1);
     tft.println("BOOST");
 
     //boost
-    tft.setCursor(130, row3 + 70);
+    tft.setCursor(130, row3 + 50);
     tft.setTextSize(3);
     tft.print(v6);
 
 
     // row 4 left
-    tft.setCursor(10, row4 + 60);
+    tft.setCursor(10, row4 + 50);
     tft.setTextColor(ILI9341_WHITE);
     tft.setTextSize(1);
     tft.println("FEEDBACK KNOCK");
 
     // feedback knock
-    tft.setCursor(10, row4 + 70);
+    tft.setCursor(10, row4 + 60);
     tft.setTextSize(3);
     if (v1 < 0) {
       tft.setTextColor(ILI9341_BLACK, ILI9341_YELLOW);
@@ -1072,13 +1073,13 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
 
 
     // row 4 right
-    tft.setCursor(150, row4 + 60);
+    tft.setCursor(150, row4 + 50);
     tft.setTextColor(ILI9341_WHITE);
     tft.setTextSize(1);
     tft.println("FINE KNOCK");
 
     //fine knock
-    tft.setCursor(130, row4 + 70);
+    tft.setCursor(130, row4 + 60);
     tft.setTextSize(3);
     if (v2 < 0) {
       tft.setTextColor(ILI9341_BLACK, ILI9341_YELLOW);
@@ -1099,9 +1100,10 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
     //tft.print(v2);
 
     tft.setTextSize(2);
-    tft.setCursor(130, 290);
-    tft.print(v12);
-    tft.setCursor(190, 290);
+    tft.setCursor(130, 280);
+    if (v12 == 9999) { tft.print(0); }
+    else { tft.print(v12); }
+    tft.setCursor(190, 280);
     tft.print(v13);    
   }
 
