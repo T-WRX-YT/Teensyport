@@ -68,13 +68,16 @@ unsigned char longReq27[8] = {0x2A, 0x3C, 0x00, 0x00, 0xD9, 0x00, 0x00, 0x00};
 bool flowCont = 1;
 /* CAN BUS SETUP */
 
+/* RPM BAR VARIABLES */
+int yellowMin, yellowMinPx, yellowMax, yellowMaxPx, yellowFill, redMin, redMinPx, revLimitPx, redMax, redMaxPx, redFill;
+/* RPM BAR VARIABLES */
 
 
 /* SERIAL CONNECTION TO ARDUINO */
 #define HWSERIAL Serial1
 char buf[10];
 int oilTemperature, oilPressure;
-int prevOilTemperature = 0;
+int prevOilTemperature = 999;
 /* SERIAL CONNECTION TO ARDUINO */
 
 
@@ -86,11 +89,11 @@ int prevOilTemperature = 0;
 #define TFT_MISO 12
 #define TFT_MOSI 11
 
-int row1 = 40;
-int row2 = 90;
-int row3 = 140;
-int row4 = 190;
-int row5 = 240;
+const unsigned int row1 = 40;
+const unsigned int row2 = 90;
+const unsigned int row3 = 140;
+const unsigned int row4 = 190;
+const unsigned int row5 = 240;
 
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCK, TFT_MISO);
 //#define DEBUG_PIN 0
@@ -107,13 +110,15 @@ union floatUnion {
 
 
 
-bool verbose = 1; // prints the raw packet data for each canbus received message
-bool printStats = 0;  // prints the current gauge data values after each 0x30 packet
-bool printLoopStats = 1;  // prints the current gauge data values when pushing to the display
-bool testData = 1;  // generate fake data and loop it to the display
+const bool verbose = 1; // prints the raw packet data for each canbus received message
+const bool printStats = 0;  // prints the current gauge data values after each 0x30 packet
+const bool printLoopStats = 1;  // prints the current gauge data values when pushing to the display
+const bool testData = 1;  // generate fake data and loop it to the display
 bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening.  will always turn off passive if it sees other traffic
-int updateInt = 500; // how fast to do an update in the loop, 50 should be 20 times a second
-int displayMode = 2; // 0 - unknown, 1 - normal, 2 - data logging.  it will auto detect from boot set to 0, if using test data set it manually
+const unsigned int updateInt = 500; // how fast to do an update in the loop, 50 should be 20 times a second
+const unsigned int updateHz = 1000 / updateInt; // the hz update speed
+unsigned int displayMode = 1; // 0 - unknown, 1 - normal, 2 - data logging.  it will auto detect from boot set to 0, if using test data set it manually
+const bool newStyleRpm = 1;
 
 void setup(void) {
   Serial.begin(115200); delay(400);
@@ -121,7 +126,7 @@ void setup(void) {
   tft.begin(); delay(400);
 
   tft.fillScreen(ILI9341_BLACK);
-  delay(5000);
+  if (!(testData)) { delay(5000); }
   tft.setTextColor(ILI9341_YELLOW);
   tft.setTextSize(2);
   Serial.println(CORE_PIN10_CONFIG, HEX);
@@ -155,8 +160,6 @@ void setup(void) {
   tft.println();
   tft.setTextSize(2);
 
-
-
   tft.println("INIT CAN");
   Serial.println("Starting can");
   //pinMode(6, OUTPUT); digitalWrite(6, LOW); // optional tranceiver enable pin
@@ -173,7 +176,8 @@ void setup(void) {
 
   Can0.mailboxStatus();
   tft.println("WAITING FOR CAN MSG");
-  delay(10000);
+  if (!(testData)) { delay(10000); }
+  if (testData) { ssmActive = 0; }  // turn off SSM active is test data is on, no need for this
 }
 
 
@@ -183,7 +187,7 @@ void setup(void) {
 void canSniff(const CAN_message_t &msg) {
     
   if (verbose) {
-    Serial.print("MB "); Serial.print(msg.mb);
+    Serial.print("[VERBOSE] MB "); Serial.print(msg.mb);
     Serial.print("  OVERRUN: "); Serial.print(msg.flags.overrun);
     Serial.print("  LEN: "); Serial.print(msg.len);
     Serial.print(" EXT: "); Serial.print(msg.flags.extended);
@@ -256,8 +260,8 @@ void canSniff(const CAN_message_t &msg) {
       if (msg.buf[i] != 0x00) { flowCont = 0; }
     }
     if (verbose) {
-      if (flowCont) { Serial.println("**************** FLOW CONTINUE RECEIVED"); }
-      else { Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!! FLOW ERROR RECEIVED"); }
+      if (flowCont) { Serial.println("[VERBOSE] **************** FLOW CONTINUE RECEIVED"); }
+      else { Serial.println("[VERBOSE] !!!!!!!!!!!!!!!!!!!!!!!!!!! FLOW ERROR RECEIVED"); }
     }
     //cnt++;
   }
@@ -267,7 +271,7 @@ void canSniff(const CAN_message_t &msg) {
 void canSniffIso(const CAN_message_t &msg) {
     
     if (verbose) {
-    Serial.print("MB "); Serial.print(msg.mb);
+    Serial.print("[VERBOSE] MB "); Serial.print(msg.mb);
     Serial.print("  OVERRUN: "); Serial.print(msg.flags.overrun);
     Serial.print("  LEN: "); Serial.print(msg.len);
     Serial.print(" EXT: "); Serial.print(msg.flags.extended);
@@ -340,8 +344,8 @@ void canSniffIso(const CAN_message_t &msg) {
             if (msg.buf[i] != 0x00) { flowCont = 0; }   // the response wasnt all zeroes, set flow continue to 0 to stop trying to send more messages
         }
         if (verbose) {
-            if (flowCont) { Serial.println("**************** FLOW CONTINUE RECEIVED"); }
-            else { Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!! FLOW ERROR RECEIVED"); }
+            if (flowCont) { Serial.println("[VERBOSE] **************** FLOW CONTINUE RECEIVED"); }
+            else { Serial.println("[VERBOSE] !!!!!!!!!!!!!!!!!!!!!!!!!!! FLOW ERROR RECEIVED"); }
         }
 
 
@@ -426,7 +430,7 @@ void loop() {
       char buf [80];
       int n = HWSERIAL.readBytesUntil ('\n', buf, sizeof(buf));
       buf [n] = '\0';     // terminate with null
-       if (verbose) { Serial.println("Serial Received"); }
+       if (verbose) { Serial.println("[VERBOSE] Serial Received"); }
 
       char *t = strtok (buf, ",");
       processOil (t);
@@ -458,7 +462,7 @@ void loop() {
         if (rpmFinal < fineRpmMin) { fineRpmMin = rpmFinal; } 
       }
 
-      updateAllBuffer(row1, feedbackKnockFinal, fineKnockFinal, row2, coolantFinal, intakeTempFinal, row3, damFinal, boostFinal, shift, row4, oilTemperature, oilPressure, row5, feedbackMax, fineMax, fineRpmMin, fineRpmMax);
+      updateAllBuffer(row1, feedbackKnockFinal, fineKnockFinal, row2, coolantFinal, intakeTempFinal, row3, damFinal, boostFinal, shift, row4, oilTemperature, oilPressure, row5, feedbackMax, fineMax, fineRpmMin, fineRpmMax, rpmFinal);
       delay(updateInt);
     }
   }
@@ -469,13 +473,13 @@ void loop() {
         if (rpmFinal > fineRpmMax) { fineRpmMax = rpmFinal; }
         if (rpmFinal < fineRpmMin) { fineRpmMin = rpmFinal; } 
       }
-    updateAllBuffer(row1, feedbackKnockFinal, fineKnockFinal, row2, coolantFinal, intakeTempFinal, row3, damFinal, boostFinal, shift, row4, oilTemperature, oilPressure, row5, feedbackMax, fineMax, fineRpmMin, fineRpmMax);
+    updateAllBuffer(row1, feedbackKnockFinal, fineKnockFinal, row2, coolantFinal, intakeTempFinal, row3, damFinal, boostFinal, shift, row4, oilTemperature, oilPressure, row5, feedbackMax, fineMax, fineRpmMin, fineRpmMax, rpmFinal);
   }
   
   
 
   if (printLoopStats) {
-    Serial.print("FB: "); Serial.print(feedbackKnockFinal);
+    Serial.print("[PRINTLOOPSTATS] FB: "); Serial.print(feedbackKnockFinal);
     Serial.print(" FN: "); Serial.print(fineKnockFinal);
     Serial.print(" BST: "); Serial.print(boostFinal);
     Serial.print(" COOL: "); Serial.print(coolantFinal);
@@ -497,6 +501,7 @@ void loop() {
 
 int calcShift(int data) {
   if (verbose) {
+    Serial.print("[VERBOSE] ");
     Serial.println(data);
   }
 
@@ -550,8 +555,6 @@ int calcShift(int data) {
   return calc;
 }
 
-
-
 void processOil (char *t) {
   char c;
   int  val;
@@ -560,36 +563,24 @@ void processOil (char *t) {
   switch (c) {
   case 'a':
       if (verbose) {
-        Serial.print (" cmd a ");
+        Serial.print ("[VERBOSE] cmd a ");
         Serial.println (val);
       }
       oilTemperature = (val);
-      if (verbose) {
-        Serial.print("Previous Oil: ");
-        Serial.print(prevOilTemperature);
-        Serial.print(" Current Oil: ");
-        Serial.print(val);
-      }
-      oilTemperature = (oilTemperature + prevOilTemperature) / 2;
-      if (verbose) {
-        Serial.print(" Average Oil: ");
-        Serial.println(oilTemperature);
-      }
-      prevOilTemperature = oilTemperature;
-
       break;
 
   case 'b':
       if (verbose) {
-        Serial.print (" cmd b ");
+        Serial.print ("[VERBOSE] cmd b ");
         Serial.println (val);
       }
+      // write the second value as oil pressure
       oilPressure = (val);
       break;
 
   default:
       if (verbose) {
-        Serial.print (" unknown cmd ");
+        Serial.print ("[VERBOSE] unknown cmd ");
         Serial.println (val);
       }
       break;
@@ -598,7 +589,7 @@ void processOil (char *t) {
 
 float calcFloatFull(unsigned char data[4], float multiplier) {
   	if (verbose) {
-      Serial.print("Input data: ");
+      Serial.print("[VERBOSE] Input data: ");
       for(int z = 0; z < 4; z++) {
         Serial.print(data[z], HEX);
       }
@@ -618,7 +609,7 @@ float calcFloatFull(unsigned char data[4], float multiplier) {
 
 int calcTemp(unsigned char data) {
   	if (verbose) {
-      Serial.print("Input data: ");
+      Serial.print("[VERBOSE] Input data: ");
       Serial.println(data, HEX);
       Serial.println();
     }
@@ -629,7 +620,7 @@ int calcTemp(unsigned char data) {
 
 float calcByteToFloat(unsigned char data, float multiplier) {
   	if (verbose) {
-      Serial.print("Input data: ");
+      Serial.print("[VERBOSE] Input data: ");
       Serial.println(data, HEX);
       Serial.println();
     }
@@ -640,7 +631,7 @@ float calcByteToFloat(unsigned char data, float multiplier) {
 
 int calcIntFull(unsigned char data[2], float multiplier) { 	
   	if (verbose) {
-      Serial.print("Input data: ");
+      Serial.print("[VERBOSE] Input data: ");
       for(int z = 0; z < 2; z++) {
         Serial.print(data[z], HEX);
       }
@@ -741,42 +732,103 @@ float calcAfr(unsigned char data) {
 // v4 = intake temp
 // v5 = dam
 // v6 = boost
+// v7 = rpm block number used with the # style
 // v8 = oil temp
 // v9 = oil pressure
 // v10 = feedback max
 // v11 = fine max
 // v12 = fine rpm min
 // v13 = fine rpm max
+// v14 = rpm final
 
-void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int row3, float v5, float v6, int v7, int row4, int v8, int v9, int row5, float v10, float v11, int v12, int v13) {
+void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int row3, float v5, float v6, int v7, int row4, int v8, int v9, int row5, float v10, float v11, int v12, int v13, int v14) {
   tft.useFrameBuffer(1);
   tft.fillScreen(ILI9341_BLACK);
 
-  /* RPM SECTION */
-  tft.setTextSize(3);
-  tft.setCursor(0,15);
-  // handle 0-6000
-  if (v7 <= 11) {
-    for (int z = 0; z < v7; z++) {
-      if (z < 5) {
-        tft.setTextColor(ILI9341_WHITE);
+  if (!(newStyleRpm)) {
+    /* RPM SECTION -- Old style using # for markers */
+    tft.setTextSize(3);
+    tft.setCursor(0,15);
+    // handle 0-6000
+    if (v7 <= 11) {
+      for (int z = 0; z < v7; z++) {
+        if (z < 5) {
+          tft.setTextColor(ILI9341_WHITE);
+        }
+        else if ((z >= 5) && (z < 9)) {
+          tft.setTextColor(ILI9341_GREEN);
+        }
+        else if ((z >= 9)) {
+          tft.setTextColor(ILI9341_RED);
+        }
+        tft.print("#");
       }
-      else if ((z >= 5) && (z < 9)) {
-        tft.setTextColor(ILI9341_GREEN);
-      }
-      else if ((z >= 9)) {
-        tft.setTextColor(ILI9341_RED);
-      }
-      tft.print("#");
     }
+    //handle 6001+
+    if (v7 > 11) {
+      tft.setTextColor(ILI9341_BLUE);
+      tft.print("#############");
+    }
+    /* RPM SECTION END */
   }
-  //handle 6001+
-  if (v7 > 11) {
-    tft.setTextColor(ILI9341_BLUE);
-    tft.print("#############");
-  }
-  /* RPM SECTION END */
+  else {
+    int rpmPx = map(v14, 0, 8000, 0, 240);
 
+    // defines the yellow and redline blocks based on oil temperature
+    if (v8 <= 120) {
+      yellowMin = 2500;
+      yellowMax = 2999;
+      redMin = 3000;
+      redMax = 8000;
+    }
+    else if ((v8 > 120) && (v8 < 160)) {
+      yellowMin = 2500;
+      yellowMax = 3499;
+      redMin = 3500;
+      redMax = 8000;
+    }
+    else {
+      yellowMin = 5000;
+      yellowMax = 5999;
+      redMin = 6000;
+      redMax = 8000;
+    }
+
+    yellowMinPx = map(yellowMin, 0, 8000, 0, 240);
+    yellowMaxPx = map(yellowMax, 0, 8000, 0, 240);
+    yellowFill = yellowMaxPx - yellowMinPx;
+    redMinPx = map(redMin, 0, 8000, 0, 240);
+    revLimitPx = 204;
+    redMaxPx = map(redMax, 0, 8000, 0, 240);
+    redFill = redMaxPx - redMinPx;
+
+
+
+
+    
+    // draws the actual line for rpm based on 8000 max and 240px width
+    if (v14 < yellowMin) {
+      tft.fillRect(0, 0, rpmPx, 30, ILI9341_WHITE);
+    }
+    else if ((v14 >= yellowMin) && (v14 <= yellowMax)) {
+      tft.fillRect(0, 0, rpmPx, 30, ILI9341_YELLOW);
+    }
+    else if ((v14 >= redMin) && (v14 <= redMax)) {
+      tft.fillRect(0, 0, rpmPx, 30, ILI9341_RED);
+    }
+
+    // this draws the yellow and red top block sections
+    tft.fillRect(yellowMinPx, 0, yellowFill, 10, ILI9341_YELLOW);
+    tft.fillRect(redMinPx, 0, redFill, 10, ILI9341_RED);
+
+    // this draws the vertical lines that seperate the colors
+    tft.drawLine(yellowMinPx, 0, yellowMinPx, 30, ILI9341_WHITE);
+    tft.drawLine(redMinPx, 0, redMinPx, 30, ILI9341_WHITE);
+    tft.drawLine(revLimitPx, 0, revLimitPx, 30, ILI9341_WHITE);
+
+
+    
+  }
 
 
 
@@ -1125,12 +1177,19 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
 
 
 
-  // bottom
+  ////////////////////////////////////////////////////////////////////// bottom
+  // sets the first block: active/passive/testing mode
   if (ssmActive) {
     tft.setCursor(5,310);
     tft.setTextSize(1);
     tft.setTextColor(ILI9341_BLACK, ILI9341_GREEN);
     tft.print("ACTIVE");
+  }
+  else if ((!(ssmActive)) && (testData)) {
+    tft.setCursor(5,310);
+    tft.setTextSize(1);
+    tft.setTextColor(ILI9341_BLACK, ILI9341_RED);
+    tft.print("TESTING");    
   }
   else {
     tft.setCursor(5,310);
@@ -1139,11 +1198,14 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
     tft.print("PASSIVE");
   }
 
+  // sets the second block: refresh rate, basically useless since its not dynmic, just looks cool i guess?
   tft.setCursor(50,310);
   tft.setTextSize(1);
   tft.setTextColor(ILI9341_BLACK, ILI9341_GREEN);
-  tft.print("20Hz");
+  tft.print(updateHz);
+  tft.print("Hz");
   
+  // sets the third block: display mode normal/race/unknown
   tft.setCursor(85,310);
   tft.setTextSize(1);
   if (displayMode == 0) {
@@ -1158,13 +1220,13 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
     tft.setTextColor(ILI9341_BLACK, ILI9341_BLUE);
     tft.print("MODE: RACE");   
   }
-
+  ////////////////////////////////////////////////////////////////////// bottom end
 
   
   tft.updateScreen();
 }
 
-
+// sends the large request that mimics my AP datalogging mode, not really used for anything currently
 void sendLargeRequest() {
   
   sendMessage(longReq1);
@@ -1199,7 +1261,7 @@ void sendLargeRequest() {
   sendFlow();
 }
 
-
+// sends the regular 6 gauge display request for normal operation
 void sendSmallRequest() {
   sendMessage(req1);
   delay(10);
@@ -1222,7 +1284,7 @@ void sendFlow() {
       msg.buf[i] = req0[i];
     }
 
-    if (verbose) { Serial.println("Sending flow message"); }
+    if (verbose) { Serial.println("[VERBOSE] Sending flow message"); }
     Can0.write(msg);
 }
 
