@@ -117,7 +117,7 @@ const bool testData = 1;  // generate fake data and loop it to the display
 bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening.  will always turn off passive if it sees other traffic
 const unsigned int updateInt = 500; // how fast to do an update in the loop, 50 should be 20 times a second
 const unsigned int updateHz = 1000 / updateInt; // the hz update speed
-unsigned int displayMode = 1; // 0 - unknown, 1 - normal, 2 - data logging.  it will auto detect from boot set to 0, if using test data set it manually
+unsigned int displayMode = 3; // 0 - unknown, 1 - normal, 2 - data logging, 3 - normal with bars.  it will auto detect from boot set to 0, if using test data set it manually
 const bool newStyleRpm = 1;
 
 void setup(void) {
@@ -744,7 +744,9 @@ float calcAfr(unsigned char data) {
 void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int row3, float v5, float v6, int v7, int row4, int v8, int v9, int row5, float v10, float v11, int v12, int v13, int v14) {
   tft.useFrameBuffer(1);
   tft.fillScreen(ILI9341_BLACK);
+  int barMap;
 
+  // not new style rpm, uses just #'s
   if (!(newStyleRpm)) {
     /* RPM SECTION -- Old style using # for markers */
     tft.setTextSize(3);
@@ -771,6 +773,7 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
     }
     /* RPM SECTION END */
   }
+  // new stye uses a rectangle, because racecar
   else {
     int rpmPx = map(v14, 0, 8000, 0, 240);
 
@@ -831,7 +834,7 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
   }
 
 
-
+  // displaymode 1 - normal mode
   if (displayMode == 1) {
     // row 1 left
     tft.setCursor(10, row1);
@@ -986,14 +989,6 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
     tft.setTextColor(ILI9341_WHITE);
 
 
-    //feedback max
-    //tft.setCursor(10, row5 + 10);
-    //tft.print(v1);
-
-    //fine max
-    //tft.setCursor(130, row5 + 10);
-    //tft.print(v2);
-
     tft.setTextSize(2);
     tft.setCursor(130, 225);
     if (v12 == 9999) { tft.print(0); }
@@ -1002,6 +997,7 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
     tft.print(v13);
   }
 
+  // displaymode 2 aka race mode
   else if (displayMode == 2) {
   
     // row 1 left
@@ -1157,20 +1153,237 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
     tft.setTextColor(ILI9341_WHITE);
 
 
-    //feedback max
-    //tft.setCursor(10, row5 + 10);
-    //tft.print(v1);
-
-    //fine max
-    //tft.setCursor(130, row5 + 10);
-    //tft.print(v2);
-
+    // prints the RPM range of the fine knock events its seen
     tft.setTextSize(2);
     tft.setCursor(130, 280);
     if (v12 == 9999) { tft.print(0); }
     else { tft.print(v12); }
     tft.setCursor(190, 280);
     tft.print(v13);    
+  }
+
+  // displaymodd 3 - new normal mode with bars
+  else if (displayMode == 3) {
+    // row 1
+    tft.setCursor(0, row1 + 5);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setTextSize(1);
+    tft.println(" OIL\n TEMP");
+
+    // draws the first row empty bar
+    tft.drawRect(40, 40, 130, 24, ILI9341_WHITE);
+
+    // maps the oil temp value to pixels for the bar printing
+    barMap = map(v8, 0, 270, 0, 130);
+
+    //oil temp
+    tft.setCursor(180, row1);
+    tft.setTextSize(3);
+    // row 1 right
+      // 40 - 129: blue
+    if ((v8 >= 40) && (v8 < 130)) {
+      tft.setTextColor(ILI9341_WHITE, ILI9341_BLUE);
+      tft.fillRect(41, 41, barMap, 22, ILI9341_BLUE);
+    }
+    // 130-159 and 225-240: yellow
+    else if (((v8 >= 130) && (v8 < 160)) || ((v8 >= 225) && (v8 < 241))) {
+      tft.setTextColor(ILI9341_BLACK, ILI9341_YELLOW);
+      tft.fillRect(41, 41, barMap, 22, ILI9341_YELLOW);
+    }
+    // 210+ or below 40: red
+    else if ((v8 >= 241) || (v8 < 40)) {
+      tft.setTextColor(ILI9341_WHITE, ILI9341_RED);
+      if (barMap > 128) { barMap = 128; }
+      tft.fillRect(41, 41, barMap, 22, ILI9341_RED);
+    } 
+    // 160 to 225: normal
+    else {
+      tft.setTextColor(ILI9341_WHITE);
+      tft.fillRect(41, 41, barMap, 22, ILI9341_WHITE);
+    }  
+    tft.print(v8);
+
+
+
+    // row 2
+    tft.setCursor(0, row2 + 5);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setTextSize(1);
+    tft.println(" COOL\n TEMP");
+
+    // draws the first row empty bar
+    tft.drawRect(40, 90, 130, 24, ILI9341_WHITE);
+
+    // maps the coolant temp value to pixels for the bar printing
+    barMap = map(v3, 0, 230, 0, 130);
+
+    //coolant
+    // 40 - 129: blue
+    if ((v3 >= 40) && (v3 < 130)) {
+      tft.setTextColor(ILI9341_WHITE, ILI9341_BLUE);
+      tft.fillRect(41, 91, barMap, 22, ILI9341_BLUE);
+    }
+    // 130-159 and 207-209: yellow
+    else if (((v3 >= 130) && (v3 < 160)) || ((v3 >= 207) && (v3 < 210))) {
+      tft.setTextColor(ILI9341_BLACK, ILI9341_YELLOW);
+      tft.fillRect(41, 91, barMap, 22, ILI9341_YELLOW);
+    }
+    // 210+ or below 40: red
+    else if ((v3 >= 210) || (v3 < 40)) {
+      tft.setTextColor(ILI9341_WHITE, ILI9341_RED);
+      if (barMap > 128) { barMap = 128; }
+      tft.fillRect(41, 91, barMap, 22, ILI9341_RED);
+    } 
+    // 160 to 206: normal
+    else {
+      tft.setTextColor(ILI9341_WHITE);
+      tft.fillRect(41, 91, barMap, 22, ILI9341_WHITE);
+    }  
+    
+    tft.setCursor(180, row2);
+    tft.setTextSize(3);
+    tft.print(v3);
+
+
+
+    // row 3
+    tft.setCursor(10, row3 + 5);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setTextSize(1);
+    tft.println("OIL\nPRESS");
+
+    //oil pressure
+    tft.setCursor(180, row3);
+    tft.setTextSize(3);
+    tft.print(v9);
+
+    // draws the first row empty bar
+    tft.drawRect(40, 140, 130, 24, ILI9341_WHITE);
+
+    // maps the coolant temp value to pixels for the bar printing
+    barMap = map(v9, 0, 100, 0, 130);
+    tft.fillRect(41, 141, barMap, 22, ILI9341_WHITE);
+
+
+
+
+    // row 4 
+    tft.setCursor(0, row4 + 8);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setTextSize(1);
+    tft.println("BOOST");
+
+    //boost
+    tft.setCursor(160, row4 + 5);
+    tft.setTextSize(2);
+    tft.print(v6);
+
+    // draws the first row empty bar
+    tft.drawRect(40, 190, 110, 24, ILI9341_WHITE);
+
+    // maps the boost value to pixels for the bar printing
+    barMap = map(v6, 0, 20, 0, 110);
+    tft.fillRect(41, 191, barMap, 22, ILI9341_WHITE);
+    
+    
+    
+
+
+    // row 5 left
+    tft.setCursor(0, row5 + 5);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setTextSize(1);
+    tft.println("INTAKE");
+
+    // intake temp
+    tft.setCursor(50, row5);
+    tft.setTextSize(2);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.print(v4);
+
+
+
+
+
+
+    // row 5 right
+    tft.setCursor(140, row5 + 5);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setTextSize(1);
+    tft.println("DAM");
+
+    //dam
+    tft.setCursor(170, row5);
+    tft.setTextSize(2);
+    if (v5 != 1.00) {
+      tft.setTextColor(ILI9341_WHITE, ILI9341_RED);
+    }
+    else {
+      tft.setTextColor(ILI9341_WHITE);
+    }
+    tft.print(v5);
+
+
+
+    // row 6 left
+    tft.setCursor(0, row5 + 30);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setTextSize(1);
+    tft.println("FEED");
+
+    // feedback knock
+    tft.setCursor(40, row5 + 30);
+    tft.setTextSize(2);
+    if (v1 < 0) {
+      tft.setTextColor(ILI9341_BLACK, ILI9341_YELLOW);
+    }
+    else {
+      tft.setTextColor(ILI9341_WHITE);
+    }
+    tft.print(v10);
+
+
+    // row 6 right
+    tft.setCursor(130, row5 + 30);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setTextSize(1);
+    tft.println("FINE");
+
+    //fine knock
+    tft.setCursor(160, row5 + 30);
+    tft.setTextSize(2);
+    if (v2 < 0) {
+      tft.setTextColor(ILI9341_BLACK, ILI9341_YELLOW);
+    }
+    else {
+      tft.setTextColor(ILI9341_WHITE);
+    }
+    tft.print(v11);
+    tft.setTextColor(ILI9341_WHITE);
+
+
+    tft.setTextSize(1);
+    tft.setCursor(130, row5 + 55);
+    if (v12 == 9999) { tft.print(0); }
+    else { tft.print(v12); }
+    tft.setCursor(190, row5 + 55);
+    tft.print(v13);
+
+
+
+
+
+
+
+
+  }
+
+  // anything else, mostly to handle a mode 0 if the canbus data is not parsed right
+  else {
+    tft.setCursor(0, 150);
+    tft.setTextColor(ILI9341_RED);
+    tft.setTextSize(3);
+    tft.println("UNKN CAN DATA");
   }
 
 
@@ -1208,17 +1421,21 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
   // sets the third block: display mode normal/race/unknown
   tft.setCursor(85,310);
   tft.setTextSize(1);
-  if (displayMode == 0) {
-    tft.setTextColor(ILI9341_BLACK, ILI9341_RED);
-    tft.print("MODE: UNKNOWN");   
-  }
   if (displayMode == 1) {
     tft.setTextColor(ILI9341_BLACK, ILI9341_GREEN);
     tft.print("MODE: NORMAL");   
   }
-  if (displayMode == 2) {
+  else if (displayMode == 2) {
     tft.setTextColor(ILI9341_BLACK, ILI9341_BLUE);
     tft.print("MODE: RACE");   
+  }
+  else if (displayMode == 3) {
+    tft.setTextColor(ILI9341_BLACK, ILI9341_GREEN);
+    tft.print("MODE: NORMAL v2");   
+  }
+  else {
+    tft.setTextColor(ILI9341_BLACK, ILI9341_RED);
+    tft.print("MODE: UNKNOWN");   
   }
   ////////////////////////////////////////////////////////////////////// bottom end
 
