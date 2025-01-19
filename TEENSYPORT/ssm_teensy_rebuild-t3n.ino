@@ -110,14 +110,14 @@ union floatUnion {
 
 
 
-const bool verbose = 1; // prints the raw packet data for each canbus received message
+const bool verbose = 0; // prints the raw packet data for each canbus received message
 const bool printStats = 0;  // prints the current gauge data values after each 0x30 packet
 const bool printLoopStats = 1;  // prints the current gauge data values when pushing to the display
-const bool testData = 1;  // generate fake data and loop it to the display
+const bool testData = 0;  // generate fake data and loop it to the display
 bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening.  will always turn off passive if it sees other traffic
-const unsigned int updateInt = 500; // how fast to do an update in the loop, 50 should be 20 times a second
+const unsigned int updateInt = 50; // how fast to do an update in the loop, 50 should be 20 times a second
 const unsigned int updateHz = 1000 / updateInt; // the hz update speed
-unsigned int displayMode = 3; // 0 - unknown, 1 - normal, 2 - data logging, 3 - normal with bars.  it will auto detect from boot set to 0, if using test data set it manually
+unsigned int displayMode = 0; // 0 - unknown, 1 - normal, 2 - data logging, 3 - normal with bars.  it will auto detect from boot set to 0, if using test data set it manually
 const bool newStyleRpm = 1;
 
 void setup(void) {
@@ -182,91 +182,6 @@ void setup(void) {
 
 
 
-
-// old and busted.  it worked but its ugly
-void canSniff(const CAN_message_t &msg) {
-    
-  if (verbose) {
-    Serial.print("[VERBOSE] MB "); Serial.print(msg.mb);
-    Serial.print("  OVERRUN: "); Serial.print(msg.flags.overrun);
-    Serial.print("  LEN: "); Serial.print(msg.len);
-    Serial.print(" EXT: "); Serial.print(msg.flags.extended);
-    Serial.print(" TS: "); Serial.print(msg.timestamp);
-    Serial.print(" ID: "); Serial.print(msg.id, HEX);
-    Serial.print(" IDD: "); Serial.print(msg.id);
-    Serial.print(" Buffer: ");
-    for ( uint8_t i = 0; i < msg.len; i++ ) {
-      Serial.print(msg.buf[i], HEX); Serial.print(" ");
-    } Serial.println();
-  }
-
-
-  if (msg.buf[0] == 0x10) {
-    
-   
-    // original packet by packet parsing
-    unsigned char data[4] = {msg.buf[6], msg.buf[5], msg.buf[4], msg.buf[3]};
-    feedbackKnockFinal = calcFloatFull(data, 1);
-
-    fineKnockData[3] = msg.buf[7];
-    set1 = 1;
-    if (set1 & set2) {
-      fineKnockFinal = calcFloatFull(fineKnockData, 1);
-      set1 = 0;
-      set2 = 0;
-    }
-    //
-  } // finished with 0x10
-
-  if (msg.buf[0] == 0x21) {
-    fineKnockData[2] = msg.buf[1];
-    fineKnockData[1] = msg.buf[2];
-    fineKnockData[0] = msg.buf[3];
-    set2 = 1;
-    if (set1 & set2) {
-      fineKnockFinal = calcFloatFull(fineKnockData, 1);
-      set1 = 0;
-      set2 = 0;
-    }
-
-    unsigned char data[4] = {msg.buf[7], msg.buf[6], msg.buf[5], msg.buf[4]};
-    boostFinal = calcFloatFull(data, 0.01933677);
-  }
-
-  if (msg.buf[0] == 0x22) {
-    unsigned char data[2] = {msg.buf[2], msg.buf[1]};
-    rpmFinal = calcIntFull(data, .25);
-    shift = calcShift(rpmFinal);
-    coolantFinal = calcTemp(msg.buf[3]);
-    damFinal = calcByteToFloat(msg.buf[4], 0.0625);
-    intakeTempFinal = calcTemp(msg.buf[5]);
-  }
-  
-  if (msg.buf[0] == 0x30) {
-
-    if (printStats) {
-      Serial.print("30 | FB: "); Serial.print(feedbackKnockFinal);
-      Serial.print(" FN: "); Serial.print(fineKnockFinal);
-      Serial.print(" BST: "); Serial.print(boostFinal);
-      Serial.print(" COOL: "); Serial.print(coolantFinal);
-      Serial.print(" DAM: "); Serial.print(damFinal);
-      Serial.print(" INTAKE: "); Serial.print(intakeTempFinal);
-      Serial.print(" OIL T: "); Serial.print(oilTemperature);
-      Serial.print(" OIL P: "); Serial.println(oilPressure);
-    }
-
-    flowCont = 1;
-    for (int i = 1; i < 8; i++) {
-      if (msg.buf[i] != 0x00) { flowCont = 0; }
-    }
-    if (verbose) {
-      if (flowCont) { Serial.println("[VERBOSE] **************** FLOW CONTINUE RECEIVED"); }
-      else { Serial.println("[VERBOSE] !!!!!!!!!!!!!!!!!!!!!!!!!!! FLOW ERROR RECEIVED"); }
-    }
-    //cnt++;
-  }
-}
-
 // new hotness, closs enough to isotp to count
 void canSniffIso(const CAN_message_t &msg) {
     
@@ -300,7 +215,7 @@ void canSniffIso(const CAN_message_t &msg) {
 
         responseBytes = msg.buf[1] - 1; // read the 2nd byte of the response - how much data to expect.  subtract 1 to not count the response code
         if (responseBytes == 0x11) {
-          displayMode = 1;  // switch to 6 guage mode
+          displayMode = 3;  // switch to 6 guage mode
         }
         else if (responseBytes == 0x3D) {
           displayMode = 2;  // switch to logging mode
@@ -366,7 +281,7 @@ void canSniffIso(const CAN_message_t &msg) {
 
         // do work on the final data here
 
-        if (displayMode == 1) {
+        if ((displayMode == 1) or (displayMode == 3)) {
           unsigned char feedbackKnockData[4] = {responseData[3], responseData[2], responseData[1], responseData[0]};
           feedbackKnockFinal = calcFloatFull(feedbackKnockData, 1);
 
@@ -418,6 +333,9 @@ void canSniffIso(const CAN_message_t &msg) {
       packetCount++;
     } // finished with continuous message
   } // finished with the 7E8 ID message
+
+
+
 
 }
 
@@ -1174,7 +1092,7 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
     tft.drawRect(40, 40, 130, 24, ILI9341_WHITE);
 
     // maps the oil temp value to pixels for the bar printing
-    barMap = map(v8, 0, 270, 0, 130);
+    barMap = map(v8, 147, 277, 0, 130);
 
     //oil temp
     tft.setCursor(180, row1);
@@ -1215,7 +1133,7 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
     tft.drawRect(40, 90, 130, 24, ILI9341_WHITE);
 
     // maps the coolant temp value to pixels for the bar printing
-    barMap = map(v3, 0, 230, 0, 130);
+    barMap = map(v3, 140, 270, 0, 130);
 
     //coolant
     // 40 - 129: blue
@@ -1411,7 +1329,7 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
     tft.print("PASSIVE");
   }
 
-  // sets the second block: refresh rate, basically useless since its not dynmic, just looks cool i guess?
+  // sets the second block: refresh rate, now actually shows the real value based on the global var
   tft.setCursor(50,310);
   tft.setTextSize(1);
   tft.setTextColor(ILI9341_BLACK, ILI9341_GREEN);
@@ -1437,6 +1355,22 @@ void updateAllBuffer(int row1, float v1, float v2, int row2, int v3, int v4, int
     tft.setTextColor(ILI9341_BLACK, ILI9341_RED);
     tft.print("MODE: UNKNOWN");   
   }
+
+  tft.setCursor(180,310);
+  if (flowCont) {
+    tft.setTextColor(ILI9341_BLACK, ILI9341_GREEN);
+  }
+  else {
+    tft.setTextColor(ILI9341_BLACK, ILI9341_YELLOW);
+  }
+  tft.print("FLOW"); 
+
+
+
+
+
+
+  
   ////////////////////////////////////////////////////////////////////// bottom end
 
   
@@ -1510,14 +1444,12 @@ void sendMessage(const unsigned char data[8]) {
     msg.id = 0x7E0;
 
 
-      //Serial.print("Sending message: ");
-      for (int i = 0; i < 8; i++) {
-        msg.buf[i] = data[i];
-        //Serial.print(msg.buf[i], HEX);
-        //Serial.print(" ");
-      }
-      //Serial.println();
-
-
+    //Serial.print("Sending message: ");
+    for (int i = 0; i < 8; i++) {
+      msg.buf[i] = data[i];
+      //Serial.print(msg.buf[i], HEX);
+      //Serial.print(" ");
+    }
+    //Serial.println();
     Can0.write(msg);
 }
