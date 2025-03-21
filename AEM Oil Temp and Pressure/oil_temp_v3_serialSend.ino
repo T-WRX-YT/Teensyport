@@ -7,34 +7,36 @@
 #define THERMISTORPIN A0 // What pin to connect the sensor to
 
 SoftwareSerial mySerial(A2, A3); // RX, TX
+
+
+const int sendSerial = 1;  // set whether to actually the results, for testing stuff
  
 void setup(void) {
-  Serial.begin(115200); delay(400);
-  mySerial.begin(9600); delay(400);
+  Serial.begin(115200);
+  delay(400);
+  if (sendSerial) { 
+    mySerial.begin(9600); 
+    delay(400); 
+  }
 }
- 
-int rr = 700;
-unsigned int avg = 0;
-unsigned int finalAvg;
-unsigned int counter = 0;
+
 
 
 void loop(void) {
 
+  // read A1, then convert it to voltage based on 5v source
+  // using the AEM linear function for oil pressure, calculate the pressure value
   int sensorValue = analogRead(A1);
   float voltage = sensorValue * (5.0 / 1023.0);
   int psi = (37.5*(voltage))-18.75;
 
-
+  // read A0 pin, then calculate the resistance based on 2.2k resistor
   float reading;
   reading = analogRead(THERMISTORPIN);
-  // convert the value to resistance
   reading = (1023 / reading)  - 1;     // (1023/ADC - 1) 
-  reading = SERIESRESISTOR / reading;  // 10K / (1023/ADC - 1)
+  reading = SERIESRESISTOR / reading;  // resistor / (1023/ADC - 1)
 
-  reading = rr;
-  rr = rr - 1;
-
+  // arm is non-linear function, the best I could do is the middle using a function, the rest use a bunch of MAP()'s.  sue me
   // -40 - 140
   if (reading >= 2701) {
     //Serial.print("Manual mapping ");
@@ -165,28 +167,28 @@ void loop(void) {
     }
   }
 
-  
+  // round it off and store it as the oil temperature
   reading = round(reading);
   int temperature = reading;
 
-  avg += temperature;
-  counter++;
-  if (counter == 9) {
-    avg = avg / 10;
-  }
 
+  // since I don't have a good way of sending 2 int's at once i sent it as a weird string a123,b123
   Serial.print("a");
   Serial.print(temperature);
   Serial.print(",");
   Serial.print("b");
   Serial.println(psi);
   
-  mySerial.print("a");
-  mySerial.print(temperature);
-  mySerial.print(",");
-  mySerial.print("b");
-  mySerial.println(psi);
+  if (sendSerial) {
+    Serial.println("Sending...");
+    mySerial.print("a");
+    mySerial.print(temperature);
+    mySerial.print(",");
+    mySerial.print("b");
+    mySerial.println(psi);
+  }
 
+  // in my case, this needs to be slower than the time it takes to run a loop on the teensy at the far end
   delay(200);
 }
 
