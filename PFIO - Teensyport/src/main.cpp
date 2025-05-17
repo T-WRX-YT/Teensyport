@@ -132,12 +132,12 @@ const bool printStats = 0;  // prints the current gauge data values after each 0
 const bool printLoopStats = 1;  // prints the current gauge data values when pushing to the display
 const bool testData = 1;  // generate fake data and loop it to the display
 bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening.  will always turn off passive if it sees other traffic
-const unsigned int updateInt = 1000; // how fast to do an update in the loop, 50 should be ~10 times a second
+const unsigned int updateInt = 20; // how fast to do an update in the loop, 50 should be ~10 times a second
 unsigned int updateHz;// = 1000 / updateInt; // the hz update speed
 // 0 - unknown, 1 - normal, 2 - data logging, 3 - normal with bars.  it will auto detect 2 or 3 when active, if using test data set it manually
 unsigned int displayMode = 3; // set this manually for test mode, otherwise it will use the below two values
-const unsigned int displayModeNormal = 3;
-const unsigned int displayModeLogging = 2;
+const unsigned int displayModeNormal = 3; // set which display mode to use when the device is not logging.
+const unsigned int displayModeLogging = 2; // set which display mode to use when the accessport is logging
 /* GLOBAL and SETUP VARS */
 
 
@@ -159,7 +159,7 @@ void sendSmallRequest();
 void setup(void) {
   Serial.begin(115200);
   delay(400);
-  HWSERIAL.begin(9600);
+  if (!(testData)) { HWSERIAL.begin(9600); }
   delay(400);
   tft.begin();
   delay(400);
@@ -194,19 +194,10 @@ void setup(void) {
   Can0.mailboxStatus();
   tft.println("WAITING FOR CAN MSG");
   //if (!(testData)) { delay(10000); }
-  if (testData) { ssmActive = 0; }  // turn off SSM active is test data is on, no need for this
-
-
-
-
-//delay(10000);
-
-
-
-  //Serial.println(map(19, 0, 20, 0, 110));
-
-
-
+  if (testData) { 
+    ssmActive = 0;
+    flowCont = 0; 
+  }  // turn off SSM active is test data is on, no need for this
 }
 
 
@@ -367,22 +358,24 @@ void canSniffIso(const CAN_message_t &msg) {
 void loop() {
   
   // some crazy stuff i found on the internet.  how i receive and parse two integers at once via serial from an arduino
-  if (HWSERIAL.available ()) {
-      Serial.println("HWSERIAL Received");
-      char buf [80];
-      int n = HWSERIAL.readBytesUntil ('\n', buf, sizeof(buf));
-      Serial.println(n);
-      // check for a real value.  weird things happen if the logic converter is connected but nothing is sending
-      if ((n > 1) && (n < 15)) {
-        buf [n] = '\0';     // terminate with null
-        if (verbose) { Serial.println("[VERBOSE] Serial Received"); }
+  if (!(testData)) {
+    if (HWSERIAL.available ()) {
+        Serial.println("HWSERIAL Received");
+        char buf [80];
+        int n = HWSERIAL.readBytesUntil ('\n', buf, sizeof(buf));
+        Serial.println(n);
+        // check for a real value.  weird things happen if the logic converter is connected but nothing is sending
+        if ((n > 1) && (n < 15)) {
+          buf [n] = '\0';     // terminate with null
+          if (verbose) { Serial.println("[VERBOSE] Serial Received"); }
 
-        char *t = strtok (buf, ",");
-        Serial.println(t);
-        processOil (t);
-        while ((t = strtok (NULL, ",")))
-            processOil (t);
-      }
+          char *t = strtok (buf, ",");
+          Serial.println(t);
+          processOil (t);
+          while ((t = strtok (NULL, ",")))
+              processOil (t);
+        }
+    }
   }
   
   // if active is still set, send the entire small request.  since flexcan runs on interrupts, this can run in the loop and still hit the cansniffiso parsing
@@ -430,12 +423,11 @@ void loop() {
       updateAllBuffer();
       delay(updateInt);
       updateHz = 1.0 / ((micros() - start) / 1000000.0);
-      //updateHz = fps;
-      //Serial.println(fps);
     }
   }
   // else - you are getting real data from flexcan
   else {
+    unsigned long start = micros();
     if (feedbackKnockFinal < feedbackMax) { feedbackMax = feedbackKnockFinal; }
     if (fineKnockFinal < fineMax) { fineMax = fineKnockFinal; }
       if (fineKnockFinal < 0) {
@@ -459,13 +451,9 @@ void loop() {
 
 
     updateAllBuffer();
+    delay(updateInt);
+    updateHz = 1.0 / ((micros() - start) / 1000000.0);
   }
-  
-  
-
-
-
-  delay(updateInt);  
 }
 
 
@@ -495,6 +483,7 @@ void processOil (char *t) {
         Serial.println (val);
       //}
       // write the second value as oil pressure
+      if (val < 0) { val = 0; }
       oilPressure = (val);
       break;
 
@@ -664,8 +653,9 @@ float calcAfr(unsigned char data) {
 // rpmFinal = rpm final
 
 
+
 void updateAllBuffer() {
-  unsigned long start = micros();
+  //unsigned long start = micros();
   tft.useFrameBuffer(1);
   tft.fillScreen(ILI9341_BLACK);
   
