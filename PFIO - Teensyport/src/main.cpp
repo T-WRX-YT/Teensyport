@@ -26,7 +26,6 @@ int16_t coolantFinal;  // holds the calculated coolant temperature
 float damFinal; // holds the calculated DAM value, if this isn't 1... youve got problems
 int16_t intakeTempFinal;  // holds the calculated value of the intake air temp
 uint16_t rpmFinal;  // holds the calculated value of engine speed aka RPM
-int shift;  // calculated 1-13 number of #'s to print for the shift lights.  0-1000 for 1, then 500 increments
 
 // this is the standard 6 gauge non logging setup request.  this is only valid for my ECU ID yours might be different
 const unsigned char req0[8] = {0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
@@ -397,7 +396,6 @@ void loop() {
       boostFinal = (random(-20,20) / 1.1 );
       oilPressure = (random(0,99));
       rpmFinal = random(0,6800);
-      shift = random(1,13);
       if (feedbackKnockFinal < feedbackMax) { feedbackMax = feedbackKnockFinal; }
       if (fineKnockFinal < fineMax) { fineMax = fineKnockFinal; }
       if (fineKnockFinal < 0) {
@@ -415,7 +413,6 @@ void loop() {
         Serial.print(" OIL T: "); Serial.print(oilTemperature);
         Serial.print(" OIL P: "); Serial.print(oilPressure);
         Serial.print(" RPM: "); Serial.print(rpmFinal);
-        Serial.print(" SHIFT: "); Serial.println(shift);
       }
 
 
@@ -446,7 +443,6 @@ void loop() {
       Serial.print(" OIL T: "); Serial.print(oilTemperature);
       Serial.print(" OIL P: "); Serial.print(oilPressure);
       Serial.print(" RPM: "); Serial.print(rpmFinal);
-      Serial.print(" SHIFT: "); Serial.println(shift);
     }
 
 
@@ -635,23 +631,6 @@ float calcAfr(unsigned char data) {
 	float calc = (data / 128) * 14.7;
 	return calc;
 }
-
-// updateAllBuffer(row1, feedbackKnockFinal, fineKnockFinal, row2, coolantFinal, intakeTempFinal, row3, damFinal, boostFinal, shift, row4, oilTemperature, oilPressure, row5, feedbackMax, fineMax, fineRpmMin, fineRpmMax);
-// feedbackKnockFinal = feedback
-// fineKnockFinal = fine knock
-// coolantFinal = coolant
-// intakeTempFinal = intake temp
-// damFinal = dam
-// boostFinal = boost
-// v7 = rpm block number used with the # style ****NO LONGER USED
-// oilTemperature = oil temp
-// oilPressure = oil pressure
-// feedbackMax = feedback max
-// fineMax = fine max
-// fineRpmMin = fine rpm min
-// fineRpmMax = fine rpm max
-// rpmFinal = rpm final
-
 
 
 void updateAllBuffer() {
