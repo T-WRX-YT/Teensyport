@@ -129,9 +129,9 @@ union floatUnion {
 const bool verbose = 0; // prints the raw packet data for each canbus received message.  this generates a LOT of text!
 const bool printStats = 0;  // prints the current gauge data values after each 0x30 packet.  most deprecated with printloopstats in place
 const bool printLoopStats = 1;  // prints the current gauge data values when pushing to the display
-const bool testData = 1;  // generate fake data and loop it to the display
+const bool testData = 0;  // generate fake data and loop it to the display
 bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening.  will always turn off passive if it sees other traffic
-const unsigned int updateInt = 20; // how fast to do an update in the loop, 50 should be ~10 times a second
+const unsigned int updateInt = 10; // how fast to do an update in the loop, 50 should be ~10 times a second
 unsigned int updateHz;// = 1000 / updateInt; // the hz update speed
 // 0 - unknown, 1 - normal, 2 - data logging, 3 - normal with bars.  it will auto detect 2 or 3 when active, if using test data set it manually
 unsigned int displayMode = 3; // set this manually for test mode, otherwise it will use the below two values
@@ -162,7 +162,7 @@ void setup(void) {
   delay(400);
   tft.begin();
   delay(400);
-  tft.setRotation(2);
+  //tft.setRotation(2);
 
   tft.fillScreen(ILI9341_BLACK);
   //if (!(testData)) { delay(5000); }
@@ -693,8 +693,7 @@ void updateAllBuffer() {
   /* Top RPM bar */
 
     
-  
-
+ 
 
   // displaymode 1 - normal mode
   if (displayMode == 1) {
@@ -1323,8 +1322,7 @@ void updateAllBuffer() {
     tft.println("UNKN CAN DATA");
   }
 
-
-
+ 
 
 
   ////////////////////////////////////////////////////////////////////// bottom
