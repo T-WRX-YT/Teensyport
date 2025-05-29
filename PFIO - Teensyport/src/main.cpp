@@ -26,6 +26,8 @@ int16_t coolantFinal;  // holds the calculated coolant temperature
 float damFinal; // holds the calculated DAM value, if this isn't 1... youve got problems
 int16_t intakeTempFinal;  // holds the calculated value of the intake air temp
 uint16_t rpmFinal;  // holds the calculated value of engine speed aka RPM
+long timer;  // will hold the seconds count used for the nbp send
+int logger; // holds the value of the button for turning on nbp logging
 
 // this is the standard 6 gauge non logging setup request.  this is only valid for my ECU ID yours might be different
 const unsigned char req0[8] = {0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
@@ -128,13 +130,13 @@ union floatUnion {
 /* GLOBAL and SETUP VARS */
 const bool verbose = 0; // prints the raw packet data for each canbus received message.  this generates a LOT of text!
 const bool printStats = 0;  // prints the current gauge data values after each 0x30 packet.  most deprecated with printloopstats in place
-const bool printLoopStats = 1;  // prints the current gauge data values when pushing to the display
-const bool testData = 0;  // generate fake data and loop it to the display
+const bool printLoopStats = 0;  // prints the current gauge data values when pushing to the display
+const bool testData = 1;  // generate fake data and loop it to the display
 bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening.  will always turn off passive if it sees other traffic
 const unsigned int updateInt = 10; // how fast to do an update in the loop, 50 should be ~10 times a second
 unsigned int updateHz;// = 1000 / updateInt; // the hz update speed
 // 0 - unknown, 1 - normal, 2 - data logging, 3 - normal with bars.  it will auto detect 2 or 3 when active, if using test data set it manually
-unsigned int displayMode = 3; // set this manually for test mode, otherwise it will use the below two values
+unsigned int displayMode = 2; // set this manually for test mode, otherwise it will use the below two values
 const unsigned int displayModeNormal = 3; // set which display mode to use when the device is not logging.
 const unsigned int displayModeLogging = 2; // set which display mode to use when the accessport is logging
 /* GLOBAL and SETUP VARS */
@@ -152,6 +154,7 @@ int calcTemp(unsigned char data);
 float calcByteToFloat(unsigned char data, float multiplier);
 void processOil (char *t);
 void sendSmallRequest();
+void sendNbp();
 /* FUNCTION DECLARATION FOR PLATFORMIO */
 
 
@@ -162,7 +165,7 @@ void setup(void) {
   delay(400);
   tft.begin();
   delay(400);
-  //tft.setRotation(2);
+  tft.setRotation(2);
 
   tft.fillScreen(ILI9341_BLACK);
   //if (!(testData)) { delay(5000); }
@@ -197,6 +200,8 @@ void setup(void) {
     ssmActive = 0;
     flowCont = 0; 
   }  // turn off SSM active is test data is on, no need for this
+
+  pinMode(5, INPUT);
 }
 
 
@@ -377,6 +382,8 @@ void loop() {
     }
   }
   
+  
+
   // if active is still set, send the entire small request.  since flexcan runs on interrupts, this can run in the loop and still hit the cansniffiso parsing
   // if this is not set, cansniffiso will still work in case an AP is plugged in
   if (ssmActive) {
@@ -412,12 +419,15 @@ void loop() {
         Serial.print(" INTAKE: "); Serial.print(intakeTempFinal);
         Serial.print(" OIL T: "); Serial.print(oilTemperature);
         Serial.print(" OIL P: "); Serial.print(oilPressure);
-        Serial.print(" RPM: "); Serial.print(rpmFinal);
+        Serial.print(" RPM: "); Serial.println(rpmFinal);
       }
 
 
+      
 
       updateAllBuffer();
+      logger = digitalRead(5);  // reads the logging button value
+      if (logger == HIGH) { sendNbp(); }
       delay(updateInt);
       updateHz = 1.0 / ((micros() - start) / 1000000.0);
     }
@@ -442,11 +452,13 @@ void loop() {
       Serial.print(" INTAKE: "); Serial.print(intakeTempFinal);
       Serial.print(" OIL T: "); Serial.print(oilTemperature);
       Serial.print(" OIL P: "); Serial.print(oilPressure);
-      Serial.print(" RPM: "); Serial.print(rpmFinal);
+      Serial.print(" RPM: "); Serial.println(rpmFinal);
     }
 
 
     updateAllBuffer();
+    logger = digitalRead(5);  // reads the logging button value
+    if (logger == HIGH) { sendNbp(); }
     delay(updateInt);
     updateHz = 1.0 / ((micros() - start) / 1000000.0);
   }
@@ -454,7 +466,33 @@ void loop() {
 
 
 
-
+void sendNbp() {
+  timer = millis();
+  char header[64];
+  sprintf(header, "*NBP1,UPDATEALL,%d.%03d", (int)(timer/1000), (int)(timer % 1000));  
+  Serial.println(header);
+  Serial.print("\"Engine Speed\",\"RPM\":");
+  Serial.println(rpmFinal);
+  //Serial.print("\"Vehicle Speed\",\"MPH\":");
+  //Serial.println(speed);
+  Serial.print("\"Feedback Knock\",\"Deg\":");
+  Serial.println(feedbackKnockFinal);
+  Serial.print("\"Fine Knock\",\"Deg\":");
+  Serial.println(fineKnockFinal);
+  Serial.print("\"Intake Manifold Pressure\",\"PSI\":");
+  Serial.println(boostFinal);
+  Serial.print("\"Engine Coolant Temp\",\"F\":");
+  Serial.println(coolantFinal);
+  Serial.print("\"Intake Air Temp\",\"F\":");
+  Serial.println(intakeTempFinal);
+  Serial.print("\"DAM\",\"Deg\":");
+  Serial.println(damFinal);
+  Serial.print("\"Engine Oil Temp\",\"F\":");
+  Serial.println(oilTemperature);
+  Serial.print("\"Engine Oil Pressure\",\"PSI\":");
+  Serial.println(oilPressure);
+  Serial.println("#");
+}
 
 
 
@@ -1389,7 +1427,6 @@ void updateAllBuffer() {
   //fps = 1.0 / ((micros() - start) / 1000000.0);
   //Serial.println(fps);
 }
-
 
 
 
