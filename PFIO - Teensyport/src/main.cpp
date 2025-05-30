@@ -106,7 +106,7 @@ int16_t oilTemperature, oilPressure;
 /* SERIAL CONNECTION TO ARDUINO */
 
 
-/* SCREEN SETUP */
+/* SCREEN SETUP for ILI9341 2.8inch screen */
 /*
 #define TFT_DC  10
 #define TFT_CS 9
@@ -1293,7 +1293,7 @@ void updateAllBuffer() {
     //oil pressure
     tft.setCursor(180, oilPressRow - 4);
     tft.setTextSize(3);
-    if (oilPressure <= 14 | oilPressure >= 90) {
+    if (oilPressure <= 14 || oilPressure >= 90) {
       tft.setTextColor(ILI9341_WHITE, ILI9341_RED);
     }
     else {
