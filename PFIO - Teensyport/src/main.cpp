@@ -12,6 +12,7 @@ unsigned char responseData[61]; // holds the entire response, 61 bytes is the ma
 uint8_t packetCount = 0;  // how many packets parsed in this block
 uint8_t byteCount = 0;  // how many bytes written, this will include any empty bytes filling the last packet, counts as the index of the responseData array
 uint8_t responseBytes;  // the value in the 0x10 packet that the ECU says is how many bytes its sending
+uint8_t responseType;  // holds the type of data.  0 = AP 6 gauge, 1 = AP full logging, 2 = standalone
 bool flowCont = 1;  // this starts at 1, but if the 0x30 packet isn't all zeroes it will go to 0 then ssm active will turn off
 
 //unsigned char fineKnockData[4]; // 6 gauge fine kock is 2 lines
@@ -26,10 +27,16 @@ int16_t coolantFinal;  // holds the calculated coolant temperature
 float damFinal; // holds the calculated DAM value, if this isn't 1... youve got problems
 int16_t intakeTempFinal;  // holds the calculated value of the intake air temp
 uint16_t rpmFinal;  // holds the calculated value of engine speed aka RPM
-long timer;  // will hold the seconds count used for the nbp send
-int logger; // holds the value of the button for turning on nbp logging
+uint8_t gearFinal; // holds the assumed gear position, not always accurate
+uint8_t speedFinal; // holds obd2 vehicle speed
+float afrFinal; // holds calulated AFR
+uint8_t throttleFinal; // holds throttle plate angle
+uint16_t brakeFinal; // holds brake pressure - maybe?
+unsigned long timer;  // will hold the seconds count used for the nbp send
+unsigned int logger; // holds the value of the button for turning on nbp logging
 
 // this is the standard 6 gauge non logging setup request.  this is only valid for my ECU ID yours might be different
+// data collected (not in same order): feedback knock, fine knock, rpm, boost, coolant temp, dam, intake temp
 const unsigned char req0[8] = {0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 const unsigned char req1[8] = {0x10, 0x35, 0xA8, 0x00, 0xFF, 0x7D, 0xA0, 0xFF};
 const unsigned char req2[8] = {0x21, 0x7D, 0xA1, 0xFF, 0x7D, 0xA2, 0xFF, 0x7D};
@@ -39,6 +46,23 @@ const unsigned char req5[8] = {0x24, 0x62, 0x00, 0xFF, 0x62, 0x01, 0xFF, 0x62};
 const unsigned char req6[8] = {0x25, 0x02, 0xFF, 0x62, 0x03, 0x00, 0x00, 0x0E};
 const unsigned char req7[8] = {0x26, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x08, 0xFF};
 const unsigned char req8[8] = {0x27, 0x68, 0x5E, 0x00, 0x00, 0x12, 0x00, 0x00};
+
+
+// this is the new standalone request, will handle the normal non logging mode and the newer smaller logging mode
+// data collected (not in same order): feedback knock, fine knock, rpm, boost, coolant temp, dam, intake temp, gear, speed, afr, throttle, brake pressure(?)
+const unsigned char newReq0[8] = {0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+const unsigned char newReq1[8] = {0x10, 0x44, 0xA8, 0x00, 0xFF, 0x7D, 0xA0, 0xFF};
+const unsigned char newReq2[8] = {0x21, 0x7D, 0xA1, 0xFF, 0x7D, 0xA2, 0xFF, 0x7D};
+const unsigned char newReq3[8] = {0x22, 0xA3, 0xFF, 0x7E, 0x3C, 0xFF, 0x7E, 0x3D};
+const unsigned char newReq4[8] = {0x23, 0xFF, 0x7E, 0x3E, 0xFF, 0x7E, 0x3F, 0xFF};
+const unsigned char newReq5[8] = {0x24, 0x62, 0x00, 0xFF, 0x62, 0x01, 0xFF, 0x62};
+const unsigned char newReq6[8] = {0x25, 0x02, 0xFF, 0x62, 0x03, 0x00, 0x00, 0x0E};
+const unsigned char newReq7[8] = {0x26, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x08, 0xFF};
+const unsigned char newReq8[8] = {0x27, 0x68, 0x5E, 0x00, 0x00, 0x12, 0xFF, 0x67};
+const unsigned char newReq9[8] = {0x28, 0xF4, 0x00, 0x00, 0x10, 0x00, 0x00, 0x46};
+const unsigned char newReq10[8] = {0x29, 0x00, 0x00, 0x15, 0x00, 0x01, 0x04, 0x00};
+
+
 
 // this is the big request used when im data logging, based on my ECU ID yours might be different
 unsigned char longReq1[8] = {0x10, 0xB9, 0xA8, 0x00, 0xFF, 0x63, 0xE4, 0xFF};
@@ -133,10 +157,10 @@ const bool printStats = 0;  // prints the current gauge data values after each 0
 const bool printLoopStats = 0;  // prints the current gauge data values when pushing to the display
 const bool testData = 1;  // generate fake data and loop it to the display
 bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening.  will always turn off passive if it sees other traffic
-const unsigned int updateInt = 10; // how fast to do an update in the loop, 50 should be ~10 times a second
+const unsigned int updateInt = 1000; // how fast to do an update in the loop, 50 should be ~10 times a second
 unsigned int updateHz;// = 1000 / updateInt; // the hz update speed
 // 0 - unknown, 1 - normal, 2 - data logging, 3 - normal with bars.  it will auto detect 2 or 3 when active, if using test data set it manually
-unsigned int displayMode = 2; // set this manually for test mode, otherwise it will use the below two values
+unsigned int displayMode = 3; // set this manually for test mode, otherwise it will use the below two values
 const unsigned int displayModeNormal = 3; // set which display mode to use when the device is not logging.
 const unsigned int displayModeLogging = 2; // set which display mode to use when the accessport is logging
 /* GLOBAL and SETUP VARS */
@@ -155,6 +179,9 @@ float calcByteToFloat(unsigned char data, float multiplier);
 void processOil (char *t);
 void sendSmallRequest();
 void sendNbp();
+void sendNewRequest();
+int calcByteToInt(unsigned char data);
+float calcThrottle(unsigned char data);
 /* FUNCTION DECLARATION FOR PLATFORMIO */
 
 
@@ -202,7 +229,12 @@ void setup(void) {
   }  // turn off SSM active is test data is on, no need for this
 
   pinMode(5, INPUT);
+  pinMode(23, OUTPUT);
+  digitalWrite(23, HIGH);
+  delay(5000);
+
 }
+
 
 
 
@@ -239,13 +271,25 @@ void canSniffIso(const CAN_message_t &msg) {
 
         responseBytes = msg.buf[1] - 1; // read the 2nd byte of the response - how much data to expect.  subtract 1 to not count the response code
         if (responseBytes == 0x11) {
-          displayMode = displayModeNormal;  // switch to 6 guage mode
+          displayMode = displayModeNormal;  // switch to 6 guage mode.  this is an ssm passive mode so no extra logic needed
+          responseType = 0;
         }
         else if (responseBytes == 0x3D) {
-          displayMode = displayModeLogging;  // switch to logging mode
+          displayMode = displayModeLogging;  // switch to logging mode.  this is an ssm passive mode so no extra logic needed
+          responseType = 1;
+        }
+        else if (responseBytes == 0x16) {  // handle the standalone mode.  this will handle standalone active mode
+          responseType = 2;
+          if (logger) {
+            displayMode = displayModeLogging;
+          }
+          else {
+            displayMode = displayModeNormal;
+          }
         }
         else {
           displayMode = 0;
+          responseType = 99;
           Serial.println(responseBytes, HEX);
         }
 
@@ -268,7 +312,7 @@ void canSniffIso(const CAN_message_t &msg) {
             }
             Serial.println();
                 
-            Serial.print("30 | FB: "); Serial.print(feedbackKnockFinal);
+            Serial.print("[PRINTSTATS] 30 | FB: "); Serial.print(feedbackKnockFinal);
             Serial.print(" FN: "); Serial.print(fineKnockFinal);
             Serial.print(" BST: "); Serial.print(boostFinal);
             Serial.print(" COOL: "); Serial.print(coolantFinal);
@@ -289,23 +333,25 @@ void canSniffIso(const CAN_message_t &msg) {
 
 
 
+        if (printLoopStats) {
+          Serial.print("Parsed ");
+          Serial.print(packetCount);  // each 0x## message parsed
+          Serial.print(" packets in this response and ");
+          Serial.print(byteCount);    // each data byte added to the responseData array, should all be in order pure data
+          Serial.print(" bytes.  ECU says I should have gotten ");
+          Serial.print(responseBytes);    // the number of bytes the 0x10 response said to have, -1 for the response code
+          Serial.print(" bytes to process.  Response type: ");
+          Serial.println(responseType);
 
-        Serial.print("Parsed ");
-        Serial.print(packetCount);  // each 0x## message parsed
-        Serial.print(" packets in this response and ");
-        Serial.print(byteCount);    // each data byte added to the responseData array, should all be in order pure data
-        Serial.print(" bytes.  ECU says I should have gotten ");
-        Serial.print(responseBytes);    // the number of bytes the 0x10 response said to have, -1 for the response code
-        Serial.println(" bytes back.");
-
-        for (int i = 0; i < responseBytes; i++) {
-          Serial.print(responseData[i], HEX);
+          for (int i = 0; i < responseBytes; i++) {
+            Serial.print(responseData[i], HEX);
+          }
+          Serial.println();
         }
-        Serial.println();
 
         // do work on the final data here.  responseData now has the entire response, array indexes depend on the order of your request
-        // 1 or 3 means it detected as a 6 gauge mode
-        if ((displayMode == 1) or (displayMode == 3)) {
+        // ap 6 gauge mode
+        if (responseType == 0) {
           unsigned char feedbackKnockData[4] = {responseData[3], responseData[2], responseData[1], responseData[0]};
           feedbackKnockFinal = calcFloatFull(feedbackKnockData, 1);
 
@@ -322,8 +368,8 @@ void canSniffIso(const CAN_message_t &msg) {
           damFinal = calcByteToFloat(responseData[15], 0.0625);
           intakeTempFinal = calcTemp(responseData[16]);
         }
-        // 2 means the response was long so its in logging mode
-        if (displayMode == 2) {
+        // ap logging logging mode
+        else if (responseType == 1) {
           unsigned char feedbackKnockData[4] = {responseData[31], responseData[30], responseData[29], responseData[28]};
           feedbackKnockFinal = calcFloatFull(feedbackKnockData, 1);
 
@@ -339,6 +385,44 @@ void canSniffIso(const CAN_message_t &msg) {
           coolantFinal = calcTemp(responseData[42]);
           damFinal = calcByteToFloat(responseData[53], 0.0625);
           intakeTempFinal = calcTemp(responseData[43]);
+        }
+        else if (responseType == 2) {
+          if (verbose) { Serial.println("[VERBOSE] Sending feedbackKnock"); }
+          unsigned char feedbackKnockData[4] = {responseData[3], responseData[2], responseData[1], responseData[0]};
+          feedbackKnockFinal = calcFloatFull(feedbackKnockData, 1);
+
+          if (verbose) { Serial.println("[VERBOSE] Sending fineKnock"); }
+          unsigned char fineKnockData[4] = {responseData[7], responseData[6], responseData[5], responseData[4]};
+          fineKnockFinal = calcFloatFull(fineKnockData, 1);
+
+          if (verbose) { Serial.println("[VERBOSE] Sending boost"); }
+          unsigned char boostData[4] = {responseData[11], responseData[10], responseData[9], responseData[8]};
+          boostFinal = calcFloatFull(boostData, 0.01933677);
+
+          if (verbose) { Serial.println("[VERBOSE] Sending rpm"); }
+          unsigned char rpmData[2] = {responseData[13], responseData[12]};
+          rpmFinal = calcIntFull(rpmData, .25);
+
+          if (verbose) { Serial.println("[VERBOSE] Sending coolant"); }
+          coolantFinal = calcTemp(responseData[14]);
+          if (verbose) { Serial.println("[VERBOSE] Sending dam"); }
+          damFinal = calcByteToFloat(responseData[15], 0.0625);
+          if (verbose) { Serial.println("[VERBOSE] Sending intakeTemp"); }
+          intakeTempFinal = calcTemp(responseData[16]);
+          if (verbose) { Serial.println("[VERBOSE] Sending gear"); }
+          gearFinal = calcByteToInt(responseData[17]);
+          if (verbose) { Serial.println("[VERBOSE] Sending speed"); }
+          speedFinal = calcByteToFloat(responseData[18], 0.621371192);
+          if (verbose) { Serial.println("[VERBOSE] Sending afr"); }
+          afrFinal = calcAfr(responseData[19]);
+          if (verbose) { Serial.println("[VERBOSE] Sending throttle"); }
+          throttleFinal = calcThrottle(responseData[20]);
+          if (verbose) { Serial.println("[VERBOSE] Sending brake"); }
+          unsigned char brakeData[2] = {responseData[22], responseData[21]};
+          brakeFinal = ((calcIntFull(brakeData, 37)) / 255);
+        }
+        else {
+          // something went wrong here :(
         }
 
 
@@ -364,17 +448,17 @@ void loop() {
   // some crazy stuff i found on the internet.  how i receive and parse two integers at once via serial from an arduino
   if (!(testData)) {
     if (HWSERIAL.available ()) {
-        Serial.println("HWSERIAL Received");
+        //Serial.println("HWSERIAL Received");
         char buf [80];
         int n = HWSERIAL.readBytesUntil ('\n', buf, sizeof(buf));
-        Serial.println(n);
+        //Serial.println(n);
         // check for a real value.  weird things happen if the logic converter is connected but nothing is sending
         if ((n > 1) && (n < 15)) {
           buf [n] = '\0';     // terminate with null
           if (verbose) { Serial.println("[VERBOSE] Serial Received"); }
 
           char *t = strtok (buf, ",");
-          Serial.println(t);
+          //Serial.println(t);
           processOil (t);
           while ((t = strtok (NULL, ",")))
               processOil (t);
@@ -387,7 +471,8 @@ void loop() {
   // if active is still set, send the entire small request.  since flexcan runs on interrupts, this can run in the loop and still hit the cansniffiso parsing
   // if this is not set, cansniffiso will still work in case an AP is plugged in
   if (ssmActive) {
-    if (flowCont) { sendSmallRequest(); }
+    //if (flowCont) { sendSmallRequest(); }
+    if (flowCont) { sendNewRequest(); }
   }
 
   // bunch of stuff to just make up data to test how the screen looks
@@ -409,6 +494,12 @@ void loop() {
         if (rpmFinal > fineRpmMax) { fineRpmMax = rpmFinal; }
         if (rpmFinal < fineRpmMin) { fineRpmMin = rpmFinal; } 
       }
+      gearFinal = random(1,5);
+      speedFinal = random(0,150);
+      afrFinal = (random(10,25) * 1.1);
+      throttleFinal = random(0,100);
+      brakeFinal = random(0,1000);
+
 
       if (printLoopStats) {
         Serial.print("[PRINTLOOPSTATS] FB: "); Serial.print(feedbackKnockFinal);
@@ -419,11 +510,21 @@ void loop() {
         Serial.print(" INTAKE: "); Serial.print(intakeTempFinal);
         Serial.print(" OIL T: "); Serial.print(oilTemperature);
         Serial.print(" OIL P: "); Serial.print(oilPressure);
-        Serial.print(" RPM: "); Serial.println(rpmFinal);
+        Serial.print(" RPM: "); Serial.print(rpmFinal);
+        Serial.print(" GEAR: "); Serial.print(gearFinal);
+        Serial.print(" SPEED: "); Serial.print(speedFinal);
+        Serial.print(" AFR: "); Serial.print(afrFinal);
+        Serial.print(" THROTTLE: "); Serial.print(throttleFinal);
+        Serial.print(" BRAKE: "); Serial.println(brakeFinal);
       }
 
 
-      
+      if (logger) {
+        displayMode = displayModeLogging;
+      }
+      else {
+        displayMode = displayModeNormal;
+      }
 
       updateAllBuffer();
       logger = digitalRead(5);  // reads the logging button value
@@ -452,7 +553,12 @@ void loop() {
       Serial.print(" INTAKE: "); Serial.print(intakeTempFinal);
       Serial.print(" OIL T: "); Serial.print(oilTemperature);
       Serial.print(" OIL P: "); Serial.print(oilPressure);
-      Serial.print(" RPM: "); Serial.println(rpmFinal);
+      Serial.print(" RPM: "); Serial.print(rpmFinal);
+      Serial.print(" GEAR: "); Serial.print(gearFinal);
+      Serial.print(" SPEED: "); Serial.print(speedFinal);
+      Serial.print(" AFR: "); Serial.print(afrFinal);
+      Serial.print(" THROTTLE: "); Serial.print(throttleFinal);
+      Serial.print(" BRAKE: "); Serial.println(brakeFinal);
     }
 
 
@@ -471,26 +577,34 @@ void sendNbp() {
   char header[64];
   sprintf(header, "*NBP1,UPDATEALL,%d.%03d", (int)(timer/1000), (int)(timer % 1000));  
   Serial.println(header);
-  Serial.print("\"Engine Speed\",\"RPM\":");
-  Serial.println(rpmFinal);
-  //Serial.print("\"Vehicle Speed\",\"MPH\":");
-  //Serial.println(speed);
   Serial.print("\"Feedback Knock\",\"Deg\":");
   Serial.println(feedbackKnockFinal);
   Serial.print("\"Fine Knock\",\"Deg\":");
   Serial.println(fineKnockFinal);
-  Serial.print("\"Intake Manifold Pressure\",\"PSI\":");
+  Serial.print("\"Boost\",\"PSI\":");
   Serial.println(boostFinal);
-  Serial.print("\"Engine Coolant Temp\",\"F\":");
+  Serial.print("\"Coolant Temperature\",\"F\":");
   Serial.println(coolantFinal);
-  Serial.print("\"Intake Air Temp\",\"F\":");
-  Serial.println(intakeTempFinal);
   Serial.print("\"DAM\",\"Deg\":");
   Serial.println(damFinal);
-  Serial.print("\"Engine Oil Temp\",\"F\":");
+  Serial.print("\"Intake Air Temperature\",\"F\":");
+  Serial.println(intakeTempFinal);
+  Serial.print("\"Oil Temperature\",\"F\":");
   Serial.println(oilTemperature);
-  Serial.print("\"Engine Oil Pressure\",\"PSI\":");
+  Serial.print("\"Oil Pressure\",\"PSI\":");
   Serial.println(oilPressure);
+  Serial.print("\"Engine Speed\",\"RPM\":");
+  Serial.println(rpmFinal);
+  Serial.print("\"Gear Position\":");
+  Serial.println(gearFinal);
+  Serial.print("\"Vehicle Speed\",\"MPH\":");
+  Serial.println(speedFinal);
+  Serial.print("\"AFR\",\"Lambda\":");
+  Serial.println(rpmFinal);
+  Serial.print("\"Throttle Position\",\"%\":");
+  Serial.println(throttleFinal);
+  Serial.print("\"Brake Pressure\",\"PSI\":");
+  Serial.println(brakeFinal);
   Serial.println("#");
 }
 
@@ -554,7 +668,6 @@ int calcTemp(unsigned char data) {
   	if (verbose) {
       Serial.print("[VERBOSE] Input data: ");
       Serial.println(data, HEX);
-      Serial.println();
     }
 
 	int calc = 32+((9*((data)-40))/5);
@@ -565,7 +678,6 @@ float calcByteToFloat(unsigned char data, float multiplier) {
   	if (verbose) {
       Serial.print("[VERBOSE] Input data: ");
       Serial.println(data, HEX);
-      Serial.println();
     }
 
 	float calc = data * multiplier;
@@ -593,11 +705,13 @@ int calcIntFull(unsigned char data[2], float multiplier) {
 
 
 float calcTargetBoost(unsigned char data[2]) {
-  	Serial.print("Input data: ");
-  	for(int z = 0; z < 2; z++) {
-  		Serial.print(data[z], HEX);
-    }
-  	Serial.println();
+  if (verbose) {	
+    Serial.print("[VERBOSE] Input data: ");
+  	  for(int z = 0; z < 2; z++) {
+  		  Serial.print(data[z], HEX);
+      }
+  	  Serial.println();
+  }
   
 	floatUnion converter; 
 
@@ -608,63 +722,74 @@ float calcTargetBoost(unsigned char data[2]) {
 
 
 int calcAvcs(unsigned char data) {
-  	Serial.print("Input data: ");
+  if (verbose) {
+    Serial.print("[VERBOSE] Input data: ");
   	Serial.println(data, HEX);
   	Serial.println();
+  }
 
 	int calc = data - 50;
 	return calc;
 }
 
 float calcTiming(unsigned char data) {
-  	Serial.print("Input data: ");
+  if (verbose) {
+    Serial.print("[VERBOSE] Input data: ");
   	Serial.println(data, HEX);
   	Serial.println();
+  }
 	
 	float calc = (data - 128) / 2;
 	return calc;
 }
 
 int calcByteToInt(unsigned char data) {
-  	Serial.print("Input data: ");
-  	Serial.println(data, HEX);
-  	Serial.println();
+  	if (verbose) {
+      Serial.print("[VERBOSE] Input data: ");
+      Serial.println(data, HEX);
+    }
 
 	int calc = data;
 	return calc;
 }
 
 float calcAfCorrection(unsigned char (data)) {
-  	Serial.print("Input data: ");
+  if (verbose) {
+    Serial.print("[VERBOSE] Input data: ");
   	Serial.println(data, HEX);
   	Serial.println();
+  }
 
 	float calc = ((data - 128) * 100) / 128;
 	return calc;
 }
 
 float calcThrottle(unsigned char data) {
-  	Serial.print("Input data: ");
+  if (verbose) {
+    Serial.print("[VERBOSE] Input data: ");
   	Serial.println(data, HEX);
-  	Serial.println();
+  }
 	
 	float calc = (data * 100) / 255;
 	return calc;
 }	
 
 float calcInjDutyCycle(unsigned char data) {
-  	Serial.print("Input data: ");
+  if (verbose) {
+    Serial.print("[VERBOSE] Input data: ");
   	Serial.println(data, HEX);
   	Serial.println();
+  }
 
 	float calc = (data * 256) / 1000;
 	return calc;
 }
 
 float calcAfr(unsigned char data) {
-  	Serial.print("Input data: ");
+  if (verbose) {
+    Serial.print("[VERBOSE] Input data: ");
   	Serial.println(data, HEX);
-  	Serial.println();
+  }
 
 	float calc = (data / 128) * 14.7;
 	return calc;
@@ -1127,7 +1252,7 @@ void updateAllBuffer() {
     // maps the coolant temp value to pixels for the bar printing
     //barMap = map(coolantFinal, 140, 270, 0, 130);
     barMap = map(coolantFinal, -40, 270, 0, 130);
-    Serial.println(barMap);
+    //Serial.println(barMap);
 
     //coolant
     // 40 - 129: blue
@@ -1419,6 +1544,15 @@ void updateAllBuffer() {
     tft.setTextColor(ILI9341_BLACK, ILI9341_YELLOW);
   }
   tft.print("FLOW"); 
+
+  tft.setCursor(215,statusRow);
+  if (logger == HIGH) {
+    tft.setTextColor(ILI9341_BLACK, ILI9341_GREEN);
+  }
+  else {
+    tft.setTextColor(ILI9341_BLACK, ILI9341_YELLOW);
+  }
+  tft.print("LOG");
   
   ////////////////////////////////////////////////////////////////////// bottom end
 
@@ -1476,6 +1610,25 @@ void sendSmallRequest() {
   sendMessage(req6);
   sendMessage(req7);
   sendMessage(req8);
+  delay(10);
+  sendFlow();
+}
+
+
+// sends the new standlone request
+void sendNewRequest() {
+  sendMessage(newReq1);
+  delay(10);
+  sendMessage(newReq2);
+  sendMessage(newReq3);
+  sendMessage(newReq4);
+  sendMessage(newReq5);
+  sendMessage(newReq6);
+  sendMessage(newReq7);
+  sendMessage(newReq8);
+  sendMessage(newReq9);
+  delay(5);
+  sendMessage(newReq10);
   delay(10);
   sendFlow();
 }
