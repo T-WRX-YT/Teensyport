@@ -154,10 +154,10 @@ union floatUnion {
 /* GLOBAL and SETUP VARS */
 const bool verbose = 0; // prints the raw packet data for each canbus received message.  this generates a LOT of text!
 const bool printStats = 0;  // prints the current gauge data values after each 0x30 packet.  most deprecated with printloopstats in place
-const bool printLoopStats = 0;  // prints the current gauge data values when pushing to the display
-const bool testData = 1;  // generate fake data and loop it to the display
+const bool printLoopStats = 1;  // prints the current gauge data values when pushing to the display
+const bool testData = 0;  // generate fake data and loop it to the display
 bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening.  will always turn off passive if it sees other traffic
-const unsigned int updateInt = 1000; // how fast to do an update in the loop, 50 should be ~10 times a second
+const unsigned int updateInt = 10; // how fast to do an update in the loop, 50 should be ~10 times a second
 unsigned int updateHz;// = 1000 / updateInt; // the hz update speed
 // 0 - unknown, 1 - normal, 2 - data logging, 3 - normal with bars.  it will auto detect 2 or 3 when active, if using test data set it manually
 unsigned int displayMode = 3; // set this manually for test mode, otherwise it will use the below two values
@@ -192,7 +192,7 @@ void setup(void) {
   delay(400);
   tft.begin();
   delay(400);
-  tft.setRotation(2);
+  //tft.setRotation(2);
 
   tft.fillScreen(ILI9341_BLACK);
   //if (!(testData)) { delay(5000); }
@@ -229,9 +229,9 @@ void setup(void) {
   }  // turn off SSM active is test data is on, no need for this
 
   pinMode(5, INPUT);
-  pinMode(23, OUTPUT);
-  digitalWrite(23, HIGH);
-  delay(5000);
+  //pinMode(23, OUTPUT);
+  //digitalWrite(23, HIGH);
+  //delay(5000);
 
 }
 
@@ -333,7 +333,7 @@ void canSniffIso(const CAN_message_t &msg) {
 
 
 
-        if (printLoopStats) {
+        if (verbose) {
           Serial.print("Parsed ");
           Serial.print(packetCount);  // each 0x## message parsed
           Serial.print(" packets in this response and ");
@@ -343,10 +343,12 @@ void canSniffIso(const CAN_message_t &msg) {
           Serial.print(" bytes to process.  Response type: ");
           Serial.println(responseType);
 
+
           for (int i = 0; i < responseBytes; i++) {
             Serial.print(responseData[i], HEX);
           }
           Serial.println();
+
         }
 
         // do work on the final data here.  responseData now has the entire response, array indexes depend on the order of your request
@@ -600,7 +602,7 @@ void sendNbp() {
   Serial.print("\"Vehicle Speed\",\"MPH\":");
   Serial.println(speedFinal);
   Serial.print("\"AFR\",\"Lambda\":");
-  Serial.println(rpmFinal);
+  Serial.println(afrFinal);
   Serial.print("\"Throttle Position\",\"%\":");
   Serial.println(throttleFinal);
   Serial.print("\"Brake Pressure\",\"PSI\":");
@@ -618,18 +620,18 @@ void processOil (char *t) {
 
   switch (c) {
   case 'a':
-      //if (verbose) {
+      if (verbose) {
         Serial.print ("[VERBOSE] cmd a ");
         Serial.println (val);
-      //}
+      }
       oilTemperature = (val);
       break;
 
   case 'b':
-      //if (verbose) {
+      if (verbose) {
         Serial.print ("[VERBOSE] cmd b ");
         Serial.println (val);
-      //}
+      }
       // write the second value as oil pressure
       if (val < 0) { val = 0; }
       oilPressure = (val);
@@ -1650,12 +1652,12 @@ void sendMessage(const unsigned char data[8]) {
     msg.id = 0x7E0;
 
 
-      //Serial.print("Sending message: ");
+      if (verbose) { Serial.print("Sending message: "); }
       for (int i = 0; i < 8; i++) {
         msg.buf[i] = data[i];
-        //Serial.print(msg.buf[i], HEX);
-        //Serial.print(" ");
+        if (verbose) { Serial.print(msg.buf[i], HEX); }
+        if (verbose) { Serial.print(" "); }
       }
-      //Serial.println();
+      if (verbose) { Serial.println(); }
       Can0.write(msg);
 }
