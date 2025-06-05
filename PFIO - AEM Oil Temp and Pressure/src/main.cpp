@@ -174,18 +174,14 @@ void loop(void) {
 
 
   // since I don't have a good way of sending 2 int's at once i sent it as a weird string a123,b123
-  Serial.print("a");
   Serial.print(temperature);
   Serial.print(",");
-  Serial.print("b");
   Serial.println(psi);
   
   if (sendSerial) {
     Serial.println("Sending...");
-    mySerial.print("a");
     mySerial.print(temperature);
     mySerial.print(",");
-    mySerial.print("b");
     mySerial.println(psi);
   }
 

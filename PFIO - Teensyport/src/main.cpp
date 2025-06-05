@@ -450,21 +450,25 @@ void loop() {
   // some crazy stuff i found on the internet.  how i receive and parse two integers at once via serial from an arduino
   if (!(testData)) {
     if (HWSERIAL.available ()) {
-        //Serial.println("HWSERIAL Received");
-        char buf [80];
-        int n = HWSERIAL.readBytesUntil ('\n', buf, sizeof(buf));
-        //Serial.println(n);
-        // check for a real value.  weird things happen if the logic converter is connected but nothing is sending
-        if ((n > 1) && (n < 15)) {
-          buf [n] = '\0';     // terminate with null
-          if (verbose) { Serial.println("[VERBOSE] Serial Received"); }
+      String incomingData = "";
 
-          char *t = strtok (buf, ",");
-          //Serial.println(t);
-          processOil (t);
-          while ((t = strtok (NULL, ",")))
-              processOil (t);
+      incomingData = HWSERIAL.readStringUntil('\n');
+      int commaIndex = incomingData.indexOf(',');
+
+      if (commaIndex != -1) {
+        String part1 = incomingData.substring(0, commaIndex);
+        oilTemperature = part1.toInt();
+
+        String part2 = incomingData.substring(commaIndex + 1);
+        oilPressure = part2.toInt();
+
+        if (verbose) {
+          Serial.print("Received num1: ");
+          Serial.println(oilTemperature);
+          Serial.print("Received num2: ");
+          Serial.println(oilPressure);
         }
+      }
     }
   }
   
