@@ -15,7 +15,6 @@ uint8_t responseBytes;  // the value in the 0x10 packet that the ECU says is how
 uint8_t responseType;  // holds the type of data.  0 = AP 6 gauge, 1 = AP full logging, 2 = standalone
 bool flowCont = 1;  // this starts at 1, but if the 0x30 packet isn't all zeroes it will go to 0 then ssm active will turn off
 
-//unsigned char fineKnockData[4]; // 6 gauge fine kock is 2 lines
 float feedbackKnockFinal;  // holds the calculated value for current feedback knock
 float feedbackMax = 0;  // holds the max negative value seen for feedback knock
 float fineKnockFinal;  // holds the calculated value for the current fine knock correction
@@ -105,6 +104,10 @@ char buf[10];
 int16_t oilTemperature, oilPressure;
 /* SERIAL CONNECTION TO ARDUINO */
 
+/* SERIAL CONNECTION TO ESP32 */
+#define HWSERIAL2 Serial2
+/* SERIAL CONNECTION TO ESP32 */
+
 
 /* SCREEN SETUP for ILI9341 2.8inch screen */
 /*
@@ -116,9 +119,18 @@ int16_t oilTemperature, oilPressure;
 #define TFT_MOSI 11
 */
 
+/* USE THIS FOR TEENSY 4.0 */
 #define TFT_RST 8
 #define TFT_DC 9
 #define TFT_CS 10
+/* USE THIS FOR TEENSY 4.0 */
+
+/* USE THIS FOR TEENSY 4.1 */
+//#define TFT_CS 10
+//#define TFT_DC 14
+//#define TFT_RST 15
+/* USE THIS FOR TEENSY 4.0 */
+
 
 const uint8_t row1 = 100;
 const uint8_t row2 = 130;
@@ -153,11 +165,12 @@ union floatUnion {
 
 /* GLOBAL and SETUP VARS */
 const bool verbose = 0; // prints the raw packet data for each canbus received message.  this generates a LOT of text!
-const bool printStats = 0;  // prints the current gauge data values after each 0x30 packet.  most deprecated with printloopstats in place
-const bool printLoopStats = 1;  // prints the current gauge data values when pushing to the display
+const bool printStats = 1;  // prints the current gauge data values after each 0x30 packet.  mostly deprecated with printloopstats in place
+const bool printLoopStats = 0;  // prints the current gauge data values when pushing to the display
 const bool testData = 0;  // generate fake data and loop it to the display
+const bool sendToEsp = 0;
 bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening.  will always turn off passive if it sees other traffic
-const unsigned int updateInt = 10; // how fast to do an update in the loop, 50 should be ~10 times a second
+const unsigned int updateInt = 0; // how fast to do an update in the loop, 50 should be ~10 times a second
 unsigned int updateHz;// = 1000 / updateInt; // the hz update speed
 // 0 - unknown, 1 - normal, 2 - data logging, 3 - normal with bars.  it will auto detect 2 or 3 when active, if using test data set it manually
 unsigned int displayMode = 3; // set this manually for test mode, otherwise it will use the below two values
@@ -189,6 +202,7 @@ void setup(void) {
   Serial.begin(115200);
   delay(400);
   if (!(testData)) { HWSERIAL.begin(9600); }
+  if (sendToEsp) { delay(400); HWSERIAL2.begin(19200); }
   delay(400);
   tft.begin();
   delay(400);
@@ -210,6 +224,7 @@ void setup(void) {
   tft.println("INIT CAN");
   Serial.println("Starting can");
   Can0.begin();
+  Can0.setClock(CLK_60MHz); // MOAR POWAHHH
   Can0.setBaudRate(500000);
   Can0.setMaxMB(16);
   Can0.enableFIFO();
@@ -232,6 +247,9 @@ void setup(void) {
   //pinMode(23, OUTPUT);
   //digitalWrite(23, HIGH);
   //delay(5000);
+
+
+  Serial2.println("init");
 
 }
 
@@ -306,13 +324,19 @@ void canSniffIso(const CAN_message_t &msg) {
         
         if (printStats) {
             // responseBytes are the returned value (array might have more), this will be the entire response pure data
-            for (int z = 0; z < responseBytes; z++) {
-                Serial.print(responseData[z], HEX);
-                Serial.print(" ");
+            if (verbose) {
+              for (int z = 0; z < responseBytes; z++) {
+                  Serial.print(responseData[z], HEX);
+                  Serial.print(" ");
+              }
+              Serial.println();
             }
-            Serial.println();
-                
-            Serial.print("[PRINTSTATS] 30 | FB: "); Serial.print(feedbackKnockFinal);
+            
+
+            timer = millis();
+            char header[64];
+            sprintf(header, "[PRINTSTATS] %d.%03d 30 | FB: ", (int)(timer/1000), (int)(timer % 1000)); Serial.print(header); Serial.print(feedbackKnockFinal);
+            //Serial.print("[PRINTSTATS] 30 | FB: "); Serial.print(feedbackKnockFinal);
             Serial.print(" FN: "); Serial.print(fineKnockFinal);
             Serial.print(" BST: "); Serial.print(boostFinal);
             Serial.print(" COOL: "); Serial.print(coolantFinal);
@@ -450,6 +474,33 @@ void loop() {
   // some crazy stuff i found on the internet.  how i receive and parse two integers at once via serial from an arduino
   if (!(testData)) {
     if (HWSERIAL.available ()) {
+
+      //Serial.println("HWSERIAL Received");
+      char buf [80];
+      int n = HWSERIAL.readBytesUntil ('\n', buf, sizeof(buf));
+      //Serial.println(n);
+      // check for a real value.  weird things happen if the logic converter is connected but nothing is sending
+      if ((n > 1) && (n < 15)) {
+        buf [n] = '\0';     // terminate with null
+        if (verbose) { Serial.println("[VERBOSE] Serial Received"); }
+
+        char *t = strtok (buf, ",");
+        //Serial.println(t);
+        processOil (t);
+        while ((t = strtok (NULL, ",")))
+            processOil (t);
+      }
+
+
+
+
+
+
+
+
+
+
+      /*
       String incomingData = "";
 
       incomingData = HWSERIAL.readStringUntil('\n');
@@ -469,6 +520,7 @@ void loop() {
           Serial.println(oilPressure);
         }
       }
+        */
     }
   }
   
@@ -508,7 +560,10 @@ void loop() {
 
 
       if (printLoopStats) {
-        Serial.print("[PRINTLOOPSTATS] FB: "); Serial.print(feedbackKnockFinal);
+        timer = millis();
+        char header[64];
+        sprintf(header, "[PRINTLOOPSTATS] %d.%03d FB: ", (int)(timer/1000), (int)(timer % 1000)); Serial.print(header); Serial.print(feedbackKnockFinal); 
+        //Serial.print("[PRINTLOOPSTATS] FB: "); Serial.print(feedbackKnockFinal);
         Serial.print(" FN: "); Serial.print(fineKnockFinal);
         Serial.print(" BST: "); Serial.print(boostFinal);
         Serial.print(" COOL: "); Serial.print(coolantFinal);
@@ -551,7 +606,10 @@ void loop() {
 
 
     if (printLoopStats) {
-      Serial.print("[PRINTLOOPSTATS] FB: "); Serial.print(feedbackKnockFinal);
+      timer = millis();
+      char header[64];
+      sprintf(header, "[PRINTLOOPSTATS] %d.%03d FB: ", (int)(timer/1000), (int)(timer % 1000)); Serial.print(header); Serial.print(feedbackKnockFinal); 
+      //Serial.print("[PRINTLOOPSTATS] FB: "); Serial.print(feedbackKnockFinal);
       Serial.print(" FN: "); Serial.print(fineKnockFinal);
       Serial.print(" BST: "); Serial.print(boostFinal);
       Serial.print(" COOL: "); Serial.print(coolantFinal);
@@ -567,13 +625,41 @@ void loop() {
       Serial.print(" BRAKE: "); Serial.println(brakeFinal);
     }
 
-
     updateAllBuffer();
     logger = digitalRead(5);  // reads the logging button value
     if (logger == HIGH) { sendNbp(); }
     delay(updateInt);
     updateHz = 1.0 / ((micros() - start) / 1000000.0);
   }
+
+  if (sendToEsp) {
+    int nums[7] = {coolantFinal, intakeTempFinal, rpmFinal, gearFinal, speedFinal, throttleFinal, brakeFinal};
+    float floats[5] = {feedbackKnockFinal, fineKnockFinal, boostFinal, damFinal, afrFinal};
+    
+    
+    // Send the integers followed by floats, each separated by commas
+    for (int i = 0; i < 7; i++) {
+      Serial2.print(nums[i]);
+      Serial.print(nums[i]);
+      Serial2.print(",");  // Separate integers with a comma
+      Serial.print(",");
+    }
+    for (int i = 0; i < 5; i++) {
+      Serial2.print(floats[i], 2);  // Print float with 2 decimal places
+      Serial.print(floats[i], 2);
+      if (i < 4) {
+        Serial2.print(",");  // Separate floats with a comma
+        Serial.print(",");
+      }
+    }
+    Serial2.println();  // End the line after sending all the data
+    Serial.println("finished");
+
+    //Serial2.println("from teensy");
+    //Serial.println("sent to Serial 2");
+  }
+
+
 }
 
 
@@ -1633,9 +1719,9 @@ void sendNewRequest() {
   sendMessage(newReq7);
   sendMessage(newReq8);
   sendMessage(newReq9);
-  delay(5);
+  delay(2);
   sendMessage(newReq10);
-  delay(10);
+  delay(5);
   sendFlow();
 }
 
