@@ -30,9 +30,10 @@ uint8_t gearFinal; // holds the assumed gear position, not always accurate
 uint8_t speedFinal; // holds obd2 vehicle speed
 float afrFinal; // holds calulated AFR
 uint8_t throttleFinal; // holds throttle plate angle
-uint16_t brakeFinal; // holds brake pressure - maybe?
+//uint16_t brakeFinal; // holds brake pressure - maybe?
 unsigned long timer;  // will hold the seconds count used for the nbp send
 unsigned int logger; // holds the value of the button for turning on nbp logging
+bool print = 1; // toggles whether to update the display or not this loop
 
 // this is the standard 6 gauge non logging setup request.  this is only valid for my ECU ID yours might be different
 // data collected (not in same order): feedback knock, fine knock, rpm, boost, coolant temp, dam, intake temp
@@ -50,7 +51,7 @@ const unsigned char req8[8] = {0x27, 0x68, 0x5E, 0x00, 0x00, 0x12, 0x00, 0x00};
 // this is the new standalone request, will handle the normal non logging mode and the newer smaller logging mode
 // data collected (not in same order): feedback knock, fine knock, rpm, boost, coolant temp, dam, intake temp, gear, speed, afr, throttle, brake pressure(?)
 const unsigned char newReq0[8] = {0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-const unsigned char newReq1[8] = {0x10, 0x44, 0xA8, 0x00, 0xFF, 0x7D, 0xA0, 0xFF};
+const unsigned char newReq1[8] = {0x10, 0x41, 0xA8, 0x00, 0xFF, 0x7D, 0xA0, 0xFF};
 const unsigned char newReq2[8] = {0x21, 0x7D, 0xA1, 0xFF, 0x7D, 0xA2, 0xFF, 0x7D};
 const unsigned char newReq3[8] = {0x22, 0xA3, 0xFF, 0x7E, 0x3C, 0xFF, 0x7E, 0x3D};
 const unsigned char newReq4[8] = {0x23, 0xFF, 0x7E, 0x3E, 0xFF, 0x7E, 0x3F, 0xFF};
@@ -59,7 +60,7 @@ const unsigned char newReq6[8] = {0x25, 0x02, 0xFF, 0x62, 0x03, 0x00, 0x00, 0x0E
 const unsigned char newReq7[8] = {0x26, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x08, 0xFF};
 const unsigned char newReq8[8] = {0x27, 0x68, 0x5E, 0x00, 0x00, 0x12, 0xFF, 0x67};
 const unsigned char newReq9[8] = {0x28, 0xF4, 0x00, 0x00, 0x10, 0x00, 0x00, 0x46};
-const unsigned char newReq10[8] = {0x29, 0x00, 0x00, 0x15, 0x00, 0x01, 0x04, 0x00};
+const unsigned char newReq10[8] = {0x29, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 0x00};
 
 
 
@@ -111,9 +112,6 @@ int16_t oilTemperature, oilPressure;
 
 /* SCREEN SETUP for ILI9341 2.8inch screen */
 /*
-#define TFT_DC  10
-#define TFT_CS 9
-#define TFT_RST 255
 #define TFT_SCK 13
 #define TFT_MISO 12
 #define TFT_MOSI 11
@@ -165,13 +163,13 @@ union floatUnion {
 
 /* GLOBAL and SETUP VARS */
 const bool verbose = 0; // prints the raw packet data for each canbus received message.  this generates a LOT of text!
-const bool printStats = 1;  // prints the current gauge data values after each 0x30 packet.  mostly deprecated with printloopstats in place
-const bool printLoopStats = 0;  // prints the current gauge data values when pushing to the display
+const bool printStats = 0;  // prints the current gauge data values after each 0x30 packet.  mostly deprecated with printloopstats in place
+const bool printLoopStats = 1;  // prints the current gauge data values when pushing to the display
 const bool testData = 0;  // generate fake data and loop it to the display
 const bool sendToEsp = 0;
 bool ssmActive = 1; // set to 1 for active sending, 0 for passive listening.  will always turn off passive if it sees other traffic
 const unsigned int updateInt = 0; // how fast to do an update in the loop, 50 should be ~10 times a second
-unsigned int updateHz;// = 1000 / updateInt; // the hz update speed
+unsigned int updateHz;  // the hz update speed
 // 0 - unknown, 1 - normal, 2 - data logging, 3 - normal with bars.  it will auto detect 2 or 3 when active, if using test data set it manually
 unsigned int displayMode = 3; // set this manually for test mode, otherwise it will use the below two values
 const unsigned int displayModeNormal = 3; // set which display mode to use when the device is not logging.
@@ -296,7 +294,7 @@ void canSniffIso(const CAN_message_t &msg) {
           displayMode = displayModeLogging;  // switch to logging mode.  this is an ssm passive mode so no extra logic needed
           responseType = 1;
         }
-        else if (responseBytes == 0x16) {  // handle the standalone mode.  this will handle standalone active mode
+        else if (responseBytes == 0x15) {  // handle the standalone mode.  this will handle standalone active mode
           responseType = 2;
           if (logger) {
             displayMode = displayModeLogging;
@@ -443,9 +441,9 @@ void canSniffIso(const CAN_message_t &msg) {
           afrFinal = calcAfr(responseData[19]);
           if (verbose) { Serial.println("[VERBOSE] Sending throttle"); }
           throttleFinal = calcThrottle(responseData[20]);
-          if (verbose) { Serial.println("[VERBOSE] Sending brake"); }
-          unsigned char brakeData[2] = {responseData[22], responseData[21]};
-          brakeFinal = ((calcIntFull(brakeData, 37)) / 255);
+          //if (verbose) { Serial.println("[VERBOSE] Sending brake"); }
+          //unsigned char brakeData[2] = {responseData[22], responseData[21]};
+          //brakeFinal = ((calcIntFull(brakeData, 37)) / 255);
         }
         else {
           // something went wrong here :(
@@ -469,8 +467,7 @@ void canSniffIso(const CAN_message_t &msg) {
 
 
 
-void loop() {
-  
+void loop() {  
   // some crazy stuff i found on the internet.  how i receive and parse two integers at once via serial from an arduino
   if (!(testData)) {
     if (HWSERIAL.available ()) {
@@ -556,7 +553,7 @@ void loop() {
       speedFinal = random(0,150);
       afrFinal = (random(10,25) * 1.1);
       throttleFinal = random(0,100);
-      brakeFinal = random(0,1000);
+      //brakeFinal = random(0,1000);
 
 
       if (printLoopStats) {
@@ -575,8 +572,8 @@ void loop() {
         Serial.print(" GEAR: "); Serial.print(gearFinal);
         Serial.print(" SPEED: "); Serial.print(speedFinal);
         Serial.print(" AFR: "); Serial.print(afrFinal);
-        Serial.print(" THROTTLE: "); Serial.print(throttleFinal);
-        Serial.print(" BRAKE: "); Serial.println(brakeFinal);
+        Serial.print(" THROTTLE: "); Serial.println(throttleFinal);
+        //Serial.print(" BRAKE: "); Serial.println(brakeFinal);
       }
 
 
@@ -587,7 +584,8 @@ void loop() {
         displayMode = displayModeNormal;
       }
 
-      updateAllBuffer();
+      if (print) { updateAllBuffer(); }
+      print = !print;
       logger = digitalRead(5);  // reads the logging button value
       if (logger == HIGH) { sendNbp(); }
       delay(updateInt);
@@ -621,11 +619,12 @@ void loop() {
       Serial.print(" GEAR: "); Serial.print(gearFinal);
       Serial.print(" SPEED: "); Serial.print(speedFinal);
       Serial.print(" AFR: "); Serial.print(afrFinal);
-      Serial.print(" THROTTLE: "); Serial.print(throttleFinal);
-      Serial.print(" BRAKE: "); Serial.println(brakeFinal);
+      Serial.print(" THROTTLE: "); Serial.println(throttleFinal);
+      //Serial.print(" BRAKE: "); Serial.println(brakeFinal);
     }
 
-    updateAllBuffer();
+    if (print) { updateAllBuffer(); }
+    print = !print;
     logger = digitalRead(5);  // reads the logging button value
     if (logger == HIGH) { sendNbp(); }
     delay(updateInt);
@@ -633,12 +632,12 @@ void loop() {
   }
 
   if (sendToEsp) {
-    int nums[7] = {coolantFinal, intakeTempFinal, rpmFinal, gearFinal, speedFinal, throttleFinal, brakeFinal};
+    int nums[6] = {coolantFinal, intakeTempFinal, rpmFinal, gearFinal, speedFinal, throttleFinal};
     float floats[5] = {feedbackKnockFinal, fineKnockFinal, boostFinal, damFinal, afrFinal};
     
     
     // Send the integers followed by floats, each separated by commas
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 6; i++) {
       Serial2.print(nums[i]);
       Serial.print(nums[i]);
       Serial2.print(",");  // Separate integers with a comma
@@ -691,12 +690,12 @@ void sendNbp() {
   Serial.println(gearFinal);
   Serial.print("\"Vehicle Speed\",\"MPH\":");
   Serial.println(speedFinal);
-  Serial.print("\"AFR\",\"Lambda\":");
+  Serial.print("\"AFR\",\"AFR\":");
   Serial.println(afrFinal);
   Serial.print("\"Throttle Position\",\"%\":");
   Serial.println(throttleFinal);
-  Serial.print("\"Brake Pressure\",\"PSI\":");
-  Serial.println(brakeFinal);
+  //Serial.print("\"Brake Pressure\",\"PSI\":");
+  //Serial.println(brakeFinal);
   Serial.println("#");
 }
 
@@ -863,6 +862,7 @@ float calcThrottle(unsigned char data) {
   }
 	
 	float calc = (data * 100) / 255;
+  if (calc <= 14) { calc = 0; } // account for idle throttle position
 	return calc;
 }	
 
@@ -1602,11 +1602,11 @@ void updateAllBuffer() {
   }
 
   // sets the second block: refresh rate, now actually shows the real value based on the global var
-  tft.setCursor(50,statusRow);
-  tft.setTextSize(1);
-  tft.setTextColor(ILI9341_BLACK, ILI9341_GREEN);
-  tft.print(updateHz);
-  tft.print("Hz");
+  //tft.setCursor(50,statusRow);
+  //tft.setTextSize(1);
+  //tft.setTextColor(ILI9341_BLACK, ILI9341_GREEN);
+  //tft.print(updateHz);
+  //tft.print("Hz");
   
   // sets the third block: display mode normal/race/unknown
   tft.setCursor(85,statusRow);
